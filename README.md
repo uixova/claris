@@ -27,7 +27,7 @@ BitNet b1.58 = Llama mimarisi + 3 değişiklik (bkz. [claris.md](claris.md)):
 | Bileşen | Değer |
 |--------|-------|
 | Tip | BitNet b1.58 decoder-only (ternary {-1,0,+1}) |
-| Parametre | **~335M** (16L→24L derin, d 1024) |
+| Parametre | **336.5M** (ölçüldü: 303.8M gövde + 32.8M embedding) |
 | Katman / d_model / baş | **24 / 1024 / 16** (head_dim 64) |
 | FFN | Squared ReLU gated (down(relu(gate)²·up)), hidden 2688 |
 | Norm | SubLN (RMSNorm BitLinear içinde) |
@@ -36,6 +36,7 @@ BitNet b1.58 = Llama mimarisi + 3 değişiklik (bkz. [claris.md](claris.md)):
 | Bağlam | 2048 token |
 | Deploy | ~66MB (ternary paketli, bitnet.cpp CPU) |
 | Eğitim reçetesi | LR 6e-4 (2× fp16), opsiyonel 2-aşama LR/WD |
+| Kuantizasyon kapsamı | **169 BitLinear** — q/k/v/o, gate/up/down, lm_head. Kuantize edilmemiş `nn.Linear` **yok** (embedding hariç, o zaten lookup) |
 
 ---
 
@@ -44,8 +45,14 @@ BitNet b1.58 = Llama mimarisi + 3 değişiklik (bkz. [claris.md](claris.md)):
 **Önemli:** BitNet verisi standart tokenize metin — 1.58-bit olan AĞIRLIKLAR, veri değil.
 Calisra'nın temiz 33B token bin'i + bpe.json **doğrudan** kullanılır:
 - `models/` içindeki `calisra_tokens*.bin` + `bpe.json` = Calisra'ya **symlink** (66GB kopya YOK).
-- Kaggle: Calisra'nın MEVCUT dataset'leri (`calisra-tokens/-001/-002` + `calisra-code`'un
+- Kaggle: Calisra'nın MEVCUT dataset'leri (`calisra-tokens/-001/-002/-003` + `calisra-code`'un
   bpe.json'u) notebook'a **doğrudan eklenir**. Ayrı token dataset'i, re-tokenize, çevirme YOK.
+
+> ### ⚠️ `CLARIS_BIN_RO=1` (varsayılan AÇIK) — kapatma
+> Paylaşılan bin bir **symlink**. Claris onu sadece okur; cache uyumsuz görünürse yeniden
+> tokenize etmeye kalkmaz, `RuntimeError` ile durur. Bu guard bedavaya gelmedi: bir kez
+> symlink üzerinden yazıldı ve Calisra'nın 17.18GB shard 0'ı 0 byte'a düştü (jsonl'den tam
+> rebuild gerekti).
 
 ---
 
@@ -75,7 +82,7 @@ Diğer env: `CLARIS_LAYERS/DMODEL/HEADS/BATCH/ACCUM/CKPT_N/LR_TOTAL` — hepsi C
 |---|---|---|
 | **claris-code** (YENİ) | bitlinear.py + train_claris.py + bpe.py + bpe.json | `kaggle_push.py code` |
 | **claris-resume** (YENİ) | claris_model.pt (ayrı beyin) | `kaggle_push.py model` |
-| calisra-tokens / -001 / -002 | 33B bin (PAYLAŞ) | Calisra'nın mevcut dataset'i |
+| calisra-tokens / -001 / -002 / -003 | 33.3B bin, 4 shard (PAYLAŞ) | Calisra'nın mevcut dataset'i |
 
 `kaggle_push.py tokens` bilinçli engelli (veri Calisra'dan paylaşılır). AFK upload:
 `bash .claris_upload.sh` (ekran uyumaz, poweroff yok).
@@ -91,3 +98,16 @@ Diğer env: `CLARIS_LAYERS/DMODEL/HEADS/BATCH/ACCUM/CKPT_N/LR_TOTAL` — hepsi C
 - [ ] ~5-10B token → akıcı Türkçe + Calisra fp16 ile kıyas
 - [ ] SFT (Calisra hattı, loss SUM reduction)
 - [ ] **v1.0 GGUF export** (bitnet.cpp, CPU'da torch'suz ~66MB)
+
+---
+
+## Lisans
+
+**Apache-2.0** (bkz. [LICENSE](LICENSE)). Ağırlıklar bu repoda değil — kod GitHub'da,
+ağırlık HuggingFace'te (gerekçe: Calisra'nın [YAYIN.md](https://github.com/uixova/calisra/blob/main/YAYIN.md)).
+
+## Kaynaklar
+- BitNet b1.58 2B4T teknik rapor — https://arxiv.org/abs/2504.12285
+- Saf PyTorch BitLinear referansı — https://github.com/kevbuh/bitnet
+- Küçük ağlarda ternary paritesi — https://arxiv.org/pdf/2407.09527
+- bitnet.cpp (CPU çıkarım) — https://huggingface.co/microsoft/bitnet-b1.58-2B-4T
