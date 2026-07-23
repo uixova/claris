@@ -1,0 +1,60 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# --- Gizli / ortam (HF token, Kaggle key, kaynak linkleri burada) ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+kaggle.json
+.kaggle/
+
+# --- Model ağırlıkları + tokenizer (eğitimle üretilir, GB boyutunda) ---
+# Bkz. YAYIN.md: KOD -> GitHub, AĞIRLIK -> HuggingFace. .pt/.bin git'i kalıcı şişirir.
+models/
+*.pt
+*.pth
+*.bin
+*.gguf
+*.safetensors
+*.npy
+bpe.json
+
+# --- Veri (merkezi havuzda: ~/ai-data — repoya KONMAZ) ---
+data/sft
+data/fetched
+data/books
+data/generated/
+data/**/*.jsonl
+*.jsonl
+*.jsonl.gz
+
+# --- Token cache + çalışma durumu (fingerprint/push-state/cycle sayacı) ---
+*.meta.json
+.calisra_*
+.claris_*
+*_state.json
+
+# --- Loglar / notlar / geçici ---
+logs/
+*.log
+download.txt
+idea.txt
+*.tmp
+
+# --- Arşiv ---
+_archive/
+
+# --- İşletim sistemi ---
+.directory
+.DS_Store
+Thumbs.db
+
+.claude/
+

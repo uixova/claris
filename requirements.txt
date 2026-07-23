@@ -1,0 +1,21 @@
+# Calisra — bağımlılıklar
+# Eğitim/çıkarım (zorunlu):
+torch>=2.1            # Transformer eğitim/çıkarım (CUDA'lı sürüm Kaggle'da hazır)
+numpy>=1.24           # token memmap + batch
+
+# Veri çekme (fetch_and_clean.py) — opsiyonel ama önerilir:
+datasets>=2.14        # HuggingFace kaynakları (fineweb-2/CulturaX/wiki...). Yoksa
+                      # sadece Wikipedia API + doğrudan URL (stdlib) çalışır.
+
+# Sentetik üretim (gen_sft.py / gen_books.py) — opsiyonel:
+requests>=2.28        # LLM API çağrıları (Groq/Gemini/Cerebras/OpenRouter)
+
+# HF/GGUF export (export_hf.py) — SADECE export/doğrulama, eğitim/çıkarım için gerekmez:
+# safetensors>=0.4    # model.safetensors yazımı (yoksa pytorch_model.bin)
+# tokenizers>=0.15    # hızlı tokenizer.json denemesi (round-trip %100 eşleşirse yazılır)
+# transformers>=4.40  # export edilen modelin logit-eşdeğerlik doğrulaması (opsiyonel)
+
+# GGUF dönüşümü (export_hf.py sonrası, llama.cpp ile) — runtime'da gerekmez:
+# - llama.cpp convert_hf_to_gguf.py  (ayrı repo: github.com/ggml-org/llama.cpp)
+
+# Not: bpe.py SAF PYTHON (bağımlılık yok). fetch temizleyici de stdlib.
