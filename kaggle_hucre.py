@@ -40,11 +40,14 @@ env = dict(
     # ⚠️ VERİ KORUMASI — AÇIK BIRAK. Paylaşılan bin'e yazma girişimini RuntimeError ile durdurur
     # (Calisra'nın 33B verisi symlink; bir kez üstüne yazıp shard sıfırlamıştık, guard o yüzden).
     CLARIS_BIN_RO="1",
-    # HIZ (Calisra'da kanıtlı): 4 katman checkpoint, 20 serbest -> VRAM'e sığdıkça hızlı.
-    # İLK COMMIT'te OOM görürsen: CLARIS_CKPT_N="24" (tam checkpoint) ile tekrar dene,
-    # sığdığını görünce 12 -> 8 -> 4 indir. BitLinear quant ara-tensörleri Calisra'dan
-    # biraz daha çok VRAM yiyor, o yüzden ilk commit'i İZLE.
-    CLARIS_CKPT_N="4",
+    # HIZ / VRAM AYARI — CLARIS_CKPT_N = kaç blok recompute edilecek (i < N checkpoint'li).
+    # Düşük N = daha çok aktivasyon bellekte = daha çok VRAM + daha hızlı.
+    #   N=24 tam checkpoint (en az VRAM) ... N=0 hiç recompute (en çok VRAM, en hızlı).
+    # İlk commit N=4'te 12.5/15GB'da SABİT gitti (RAM peak yok). ~1GB daha kullanmak için
+    # N=0: kalan 4 bloğun da recompute'u kalkar -> ~+1-1.2GB (~13.7/15, 1.3GB pay) + biraz hız.
+    # OOM görürsen tersine çık: 4 -> 12 -> 24. BitLinear quant ara-tensörleri Calisra'dan
+    # biraz daha çok VRAM yiyor, o yüzden ilk N=0 commit'ini İZLE.
+    CLARIS_CKPT_N="0",
     # SÜRE — HER COMMIT'TE BURAYI AYARLA (yukarıdaki nota bak)
     CLARIS_MAX_HOURS="11.5",
 )
