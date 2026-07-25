@@ -35,6 +35,11 @@ env = dict(
     os.environ,
     # DDP kararlılığı (Kaggle sanal 2×T4'te NCCL sessiz takılmasını önler)
     NCCL_P2P_DISABLE="1", NCCL_IB_DISABLE="1", NCCL_SHM_DISABLE="1",
+    # BELLEK FRAGMENTASYONU (BEDAVA — hız kaybı YOK). İlk denemede N=8 OOM yedi ama
+    # 304MB "reserved-but-unallocated" (parçalanmış boşluk) vardı -> 376MB'lik istek o
+    # boşluğa sığamadı. expandable_segments parçalanmayı önler, o 304MB'ı kullanılabilir
+    # kılar. Genelde tek başına bu OOM'u çözer; güvenlik için CKPT_N'i de 8->10 aldık.
+    PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True",
     # Bin-only akış: jsonl olmadan cache kabul (veri zaten tokenize, Calisra'dan paylaşılıyor)
     CLARIS_TRUST_CACHE="1",
     # ⚠️ VERİ KORUMASI — AÇIK BIRAK. Paylaşılan bin'e yazma girişimini RuntimeError ile durdurur
@@ -44,11 +49,10 @@ env = dict(
     # Düşük N = daha çok aktivasyon bellekte = daha çok VRAM + daha hızlı.
     #   N=24 tam checkpoint (en az VRAM) ... N=0 hiç recompute (en çok VRAM, en hızlı).
     # ⚠️ 513M MODEL: 335M'de N=0 (13.7GB) sığıyordu ama 513M daha geniş (d1280) ->
-    # N=0 OOM olur (~19GB). N=8: ilk 8 blok recompute, 16 serbest -> ~13-14GB'a oturması
-    # beklenir (~6k tok/s, Calisra seviyesi). İLK COMMİT'İ İZLE:
-    #   OOM olursa   -> N=12, olmazsa N=16, hâlâ olmazsa N=24 (tam, en güvenli)
-    #   bol yer varsa -> N=6, N=4 indirip hız kazan (VRAM 15'e yaklaşana kadar)
-    CLARIS_CKPT_N="8",
+    # N=0 OOM. N=8 İLK denemede ucu ucuna OOM yedi (13.97GB, 64MB free). N=10: 2 blok
+    # daha recompute -> ~-0.5GB. expandable_segments (yukarıda) + N=10 birlikte rahat pay.
+    # Hâlâ OOM olursa -> N=12, N=16, N=24 (tam, en güvenli). Bol yer varsa -> N=8, N=6 dene.
+    CLARIS_CKPT_N="10",
     # SÜRE — HER COMMIT'TE BURAYI AYARLA (yukarıdaki nota bak)
     CLARIS_MAX_HOURS="11.5",
 )
