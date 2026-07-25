@@ -25,7 +25,7 @@ Kullanım:
   python kaggle_push.py tokens   # DEĞİŞEN token shard'ları -> <sen>/calisra-tokens(-NNN)
   python kaggle_push.py tokens --force   # değişiklik takibini atla, tüm shard'ları it
   python kaggle_push.py model    # claris_model.pt               -> <sen>/claris-resume
-  python kaggle_push.py code     # bpe.py + train_claris.py + bpe.json -> <sen>/claris-code
+  python kaggle_push.py code     # bpe.py + bitlinear.py + train_claris.py + bpe.json -> <sen>/claris-code
 
 TOKEN SHARD'LARI: Kaggle tek-dataset sınırı 20GB -> token cache CALISRA_SHARD_GB'lık
 (vars. 16GB) parçalara bölünür (build_tokens.py otomatik yapar). Her shard AYRI dataset:
