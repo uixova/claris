@@ -108,24 +108,27 @@ SHARD_CAP_BYTES = max(2, int(float(os.environ.get("CLARIS_SHARD_GB", "16")) * 10
 def _shard_name(i):
     return "calisra_tokens.bin" if i == 0 else f"calisra_tokens_{i:03d}.bin"
 
-# MODEL MİMARİSİ (~335M param, BitNet b1.58, sadece METİN)
-# 12*L*d^2 + vocab*d formülü Calisra'nın 502M'iyle doğrulandı:
-# 12*24*1024^2 + 32000*1024 = 302M + 33M = ~335M. head_dim = 64 (standart).
+# MODEL MİMARİSİ (~513M param, BitNet b1.58, sadece METİN)
+# 12*L*d^2 + vocab*d: 12*24*1280^2 + 32000*1280 = 472M + 41M = ~513M. head_dim = 64.
+# NEDEN 513M (335M'den yükseltildi): 335M @ CKPT_N=0 8.7k tok/s ile beklenenin ÜSTÜNDE
+# gitti -> bu hız fazlasını "zekaya" çevirdik. 335M BitNet ~= 250M-fp16 etkin; 513M BitNet
+# ~= 370M-fp16 etkin (+120M etkin kapasite). Deploy farkı küçük (66MB->100MB, ikisi de
+# "hissedilmez"), zeka farkı hissedilir. Hız ~6k'ya düşer (Calisra seviyesi, kabul edildi).
 VOCAB_SIZE = 32000        # Calisra ile AYNI (paylaşılan bpe.json). ASLA DEĞİŞTİRME:
                           # vocab kayarsa paylaşılan bin okunamaz + resume ölür.
                           # 32000 < 65536 -> token cache uint16 kalır.
 CONTEXT_LEN = 2048        # Calisra ile aynı. RoPE olduğu için ileride fine-tune ile uzatılır.
-N_EMBD = 1024             # d_model. Calisra 1536'ydı; Claris "tiny + hızlı" scope'ta ->
-                          # daha dar. head_dim = 1024/16 = 64 (Calisra ile aynı head_dim).
-N_HEAD = 16               # head_dim = 1024/16 = 64 (standart)
-N_LAYER = 24              # Calisra ile AYNI derinlik -- küçülme GENİŞLİKTEN geldi. Derinlik
-                          # dil kalitesini genişlikten daha ucuza taşır (küçük modelde önemli).
+N_EMBD = 1280             # d_model. 335M'deki 1024'ten genişletildi (DERİNLİK sabit tutuldu ->
+                          # reçete birebir transfer). head_dim = 1280/20 = 64 (standart).
+N_HEAD = 20               # head_dim = 1280/20 = 64 (Calisra/335M ile aynı head_dim)
+N_LAYER = 24              # DERİN çizgi (335M de L24'tü). Derinlik BitNet'in en çok kaybettiği
+                          # ÇOK-ADIMLI MANTIĞI telafi eder; büyüme sadece GENİŞLİKTEN geldi.
 DROPOUT = 0.1
-# Toplam ~335M param. Mimari SABİT, resume aynı şekli yükler (config uyuşmazsa ckpt sessizce
-# YOK SAYILIR ve SIFIRDAN başlar -- bkz. resume kontrolü aşağıda; arch:"bitnet" kilidi de var).
-# TOKEN BÜTÇESİ: 335M x ~20 (Chinchilla compute-optimal) = ~6.7B ama bu TAVAN DEĞİL --
-# SmolLM 135M'i 600B token'la eğitti (~4400 tok/param). Paylaşılan havuz 33B; tekrar
-# bütçesi ~4x'e kadar sağlıklı. Hedef: sinyal için 5-10B, sonra bırak devam etsin.
+# Toplam ~513M param. Mimari SABİT, resume aynı şekli yükler (config uyuşmazsa ckpt sessizce
+# YOK SAYILIR ve SIFIRDAN başlar). DİKKAT: eski 335M claris_model.pt varsa (d1024) config
+# uyuşmaz -> otomatik YOK SAYILIR, 513M SIFIRDAN başlar. Bu BEKLENEN (335M terk edildi).
+# TOKEN BÜTÇESİ: 513M x ~20 (Chinchilla) = ~10B ama TAVAN DEĞİL -- SmolLM 135M'i 600B'yle
+# eğitti (~4400 tok/param). Havuz 33B; 50B overtrain = 100 tok/param (sağlıklı). Tekrar ~4x.
 # DÜRÜST NOT: BitNet küçük ölçekte ternary'den fp16'ya göre daha çok kaybeder (parite 3B+'da
 # güçlü) -> 335M BitNet ≈ ~250M-fp16 etkin kalite. Aynı-token Calisra kıyası bunu gösterecek.
 
@@ -175,7 +178,11 @@ PROGRESS_EVERY = 20       # her bu kadar adımda HAFİF ilerleme (loss+tok/s) ba
 # (12h timeout = "failed" = output gider). RunPod/kiralık: kirayı sen belirlersin -> env ile
 # uzat. Örn 24h kiralarsan: CLARIS_MAX_HOURS=23.5 (son yarım saat kala güvenli dur+kaydet).
 MAX_HOURS = float(os.environ.get("CLARIS_MAX_HOURS", "11.75"))
-LR = 6e-4
+# 335M'de 6e-4 idi (ternary yüksek LR sever). 513M biraz daha büyük -> 5.5e-4: büyük
+# model biraz düşük tepe LR ile daha kararlı yakınsar. Hâlâ Calisra fp16'nın (3e-4)
+# ~1.8 katı (BitNet reçetesi yüksek LR ister). Env ile override edilebilir değil (sabit,
+# resume-tutarlı); iki-aşama LR mantığı aşağıda LR_TOTAL ile.
+LR = 5.5e-4
 WARMUP = 1500             # ilk 1500 adımda LR yavaş yavaş artsın, model sağlam otursun diye
 WEIGHT_DECAY = 0.1
 GRAD_CLIP = 1.0

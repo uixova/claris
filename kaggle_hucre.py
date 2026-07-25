@@ -43,11 +43,12 @@ env = dict(
     # HIZ / VRAM AYARI — CLARIS_CKPT_N = kaç blok recompute edilecek (i < N checkpoint'li).
     # Düşük N = daha çok aktivasyon bellekte = daha çok VRAM + daha hızlı.
     #   N=24 tam checkpoint (en az VRAM) ... N=0 hiç recompute (en çok VRAM, en hızlı).
-    # İlk commit N=4'te 12.5/15GB'da SABİT gitti (RAM peak yok). ~1GB daha kullanmak için
-    # N=0: kalan 4 bloğun da recompute'u kalkar -> ~+1-1.2GB (~13.7/15, 1.3GB pay) + biraz hız.
-    # OOM görürsen tersine çık: 4 -> 12 -> 24. BitLinear quant ara-tensörleri Calisra'dan
-    # biraz daha çok VRAM yiyor, o yüzden ilk N=0 commit'ini İZLE.
-    CLARIS_CKPT_N="0",
+    # ⚠️ 513M MODEL: 335M'de N=0 (13.7GB) sığıyordu ama 513M daha geniş (d1280) ->
+    # N=0 OOM olur (~19GB). N=8: ilk 8 blok recompute, 16 serbest -> ~13-14GB'a oturması
+    # beklenir (~6k tok/s, Calisra seviyesi). İLK COMMİT'İ İZLE:
+    #   OOM olursa   -> N=12, olmazsa N=16, hâlâ olmazsa N=24 (tam, en güvenli)
+    #   bol yer varsa -> N=6, N=4 indirip hız kazan (VRAM 15'e yaklaşana kadar)
+    CLARIS_CKPT_N="8",
     # SÜRE — HER COMMIT'TE BURAYI AYARLA (yukarıdaki nota bak)
     CLARIS_MAX_HOURS="11.5",
 )

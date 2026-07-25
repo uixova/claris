@@ -1,12 +1,12 @@
 # Claris 🇹🇷 — 1.58-bit (BitNet) Türkçe mini model
 
 **Calisra'nın kardeş projesi.** Aynı temiz Türkçe veri + aynı 32k BPE sözlük, ama tamamen
-**BitNet b1.58** (ternary ağırlık {-1, 0, +1}) üzerine kurulu ~335M parametre. Amaç: CPU'da
+**BitNet b1.58** (ternary ağırlık {-1, 0, +1}) üzerine kurulu ~513M parametre. Amaç: CPU'da
 çalışan, ~66MB'lık, hissedilmez footprint'li Türkçe edge sohbet/otomasyon modeli + yeni
 teknoloji öğrenme aracı.
 
 > **Calisra vs Claris:** Calisra = fp16 Llama (~502M, kaliteli). Claris = BitNet ternary
-> (~335M, çok küçük deploy). Aynı veri, iki teknoloji — yan yana öğrenme + kıyas.
+> (~513M, küçük deploy). Aynı veri, iki teknoloji — yan yana öğrenme + kıyas.
 
 ---
 
@@ -27,15 +27,15 @@ BitNet b1.58 = Llama mimarisi + 3 değişiklik (bkz. [claris.md](claris.md)):
 | Bileşen | Değer |
 |--------|-------|
 | Tip | BitNet b1.58 decoder-only (ternary {-1,0,+1}) |
-| Parametre | **336.5M** (ölçüldü: 303.8M gövde + 32.8M embedding) |
-| Katman / d_model / baş | **24 / 1024 / 16** (head_dim 64) |
+| Parametre | **517M** (ölçüldü, L24 d1280) |
+| Katman / d_model / baş | **24 / 1280 / 20** (head_dim 64) |
 | FFN | Squared ReLU gated (down(relu(gate)²·up)), hidden 2688 |
 | Norm | SubLN (RMSNorm BitLinear içinde) |
 | Pozisyon | RoPE (θ=10000) |
 | Sözlük | 32k BPE (Calisra ile AYNI, vocab 32000) |
 | Bağlam | 2048 token |
 | Deploy | ~66MB (ternary paketli, bitnet.cpp CPU) |
-| Eğitim reçetesi | LR 6e-4 (2× fp16), opsiyonel 2-aşama LR/WD |
+| Eğitim reçetesi | LR 5.5e-4 (2× fp16), opsiyonel 2-aşama LR/WD |
 | Kuantizasyon kapsamı | **169 BitLinear** — q/k/v/o, gate/up/down, lm_head. Kuantize edilmemiş `nn.Linear` **yok** (embedding hariç, o zaten lookup) |
 
 ---
@@ -91,7 +91,7 @@ Diğer env: `CLARIS_LAYERS/DMODEL/HEADS/BATCH/ACCUM/CKPT_N/LR_TOTAL` — hepsi C
 
 ## Yol haritası
 - [x] BitLinear (ternary+int8+STE+SubLN) + birim test
-- [x] BitNet model (~335M, ReLU² FFN, SubLN) — forward/backward doğrulandı
+- [x] BitNet model (~513M, ReLU² FFN, SubLN) — forward/backward doğrulandı
 - [x] Calisra optimizasyonları (DDP/8bit/ckpt/compile/chunked-CE/shard/bounded-cache) taşındı
 - [x] Veri symlink (Calisra bin+bpe paylaşımı)
 - [ ] Kaggle 2×T4 gerçek pretraining (env-süre commit + resume)
