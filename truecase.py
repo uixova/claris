@@ -4,7 +4,7 @@ TRUECASE — özel isimlerin büyük harfini KORPUSTAN öğrenir (elle liste yok
 
 Sorun: BPE her şeyi küçük harfe indirir (sözlük SABİT, yeniden eğitilemez) -> model
 fiziksel olarak büyük harf üretemez; "istanbul osmanlı ahmet" yazar. Elle sözlük
-(calisra_chat._PROPER) ölçeklenmez — on binlerce özel isim var.
+(claris_chat._PROPER) ölçeklenmez — on binlerce özel isim var.
 
 Çözüm (klasik truecasing): çekilen veri ORİJİNAL harfleriyle durur. Bir kelime
 korpusta CÜMLE ORTASINDA ağırlıklı büyük yazılıyorsa (İstanbul, Ahmet, TBMM) özel
@@ -16,10 +16,10 @@ Kullanım:
   python truecase.py build            # data/ -> models/truecase.json (bir kez / veri büyüyünce)
   python truecase.py test "istanbul'da ahmet ile buluştuk"
 
-calisra_chat.py çıktıda otomatik uygular (models/truecase.json varsa).
+claris_chat.py çıktıda otomatik uygular (models/truecase.json varsa).
 Not: bu ÇIKARIM katmanı düzeltmesidir; token/eğitim/resume'a dokunmaz. Modelin
 ağırlık içinde büyük harf bilmesi ancak byte-level BPE ile olur (vocab değişir =
-sıfırdan eğitim) -> gelecek major sürüm işi (bkz. calisra.md tokenizer kısıtı).
+sıfırdan eğitim) -> gelecek major sürüm işi (bkz. claris.md tokenizer kısıtı).
 """
 
 import glob

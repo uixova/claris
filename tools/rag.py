@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-RAG İSKELETİ (calisra.md §9.5 — henüz bağlı değil): model bilmediği bir şey
+RAG İSKELETİ (claris.md §9.5 — henüz bağlı değil): model bilmediği bir şey
 sorulunca Python araya girer, dışarıdan (web araması / yerel PDF-TXT-JSON)
 ilgili parçayı çeker, bağlama enjekte eder. Model ezberlemez; önündeki metni
 Türkçe akıcılığıyla özetler/cevaplar.
 
-Enjeksiyon sözleşmesi (calisra_chat.generate ile):
+Enjeksiyon sözleşmesi (claris_chat.generate ile):
   ids = [<bos>, <sys>] + encode("Aşağıdaki bilgilere göre cevapla: " + parçalar)
         + [<user>] + encode(soru) + [<bot>]
 

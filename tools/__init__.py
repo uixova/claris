@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Calisra tool-agent katmanı (calisra.md §9.5): PARAMETRESİZ ekstra yetenekler.
+Claris tool-agent katmanı (claris.md §9.5): PARAMETRESİZ ekstra yetenekler.
 
 Bilgiyi modelin paramında tutmak yerine gerektiğinde dışarıdan getirip modele
 okutuyoruz. Bunlar ÇIKARIM eklentisi — eğitim/resume'a dokunmaz.
 
-Kullanım (calisra_chat.py):
+Kullanım (claris_chat.py):
     from tools import run_pre_hooks
     ans = run_pre_hooks(kullanici_metni)
     if ans is not None:  # tool doğrudan cevapladı, model atlanır

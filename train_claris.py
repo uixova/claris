@@ -540,7 +540,7 @@ def _jsonl_paths():
 
 def _file_ids():
     """Tüm jsonl dosyalarının kimliği: [tam_yol, boyut]. Tam yol -> basename
-    çakışması yok (her cycle dosyalar calisra_diyalog_01.. olsa bile farklı dataset)."""
+    çakışması yok (her cycle dosyalar claris_diyalog_01.. olsa bile farklı dataset)."""
     out = []
     for p in _jsonl_paths():
         try:
@@ -622,7 +622,7 @@ def _tokenize_paths_fast(tok, paths, out_fileobj):
     for gi, g in enumerate(groups):
         if not g:
             continue
-        tp = os.path.join(OUT, ".calisra_tok_tmp_%d_%d.bin" % (os.getpid(), gi))
+        tp = os.path.join(OUT, ".claris_tok_tmp_%d_%d.bin" % (os.getpid(), gi))
         tmp_paths.append(tp)
         tasks.append((tok, g, tp))
     try:

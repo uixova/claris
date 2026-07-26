@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Matematik tool'u (calisra.md §9.5): küçük model aritmetiği güvenilir yapamaz ->
+Matematik tool'u (claris.md §9.5): küçük model aritmetiği güvenilir yapamaz ->
 hesap makinesi yapar. "22*10/2+5" gibi ifadeyi regex yakalar, GÜVENLİ ast-tabanlı
 değerlendirici hesaplar (ASLA eval() değil), sonuç doğrudan cevaba döner.
 

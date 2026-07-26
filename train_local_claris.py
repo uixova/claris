@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Calisra YEREL eğitici — kendi cihazında (tek GPU / CPU) sıfırdan VEYA resume pretrain.
+Claris YEREL eğitici — kendi cihazında (tek GPU / CPU) sıfırdan VEYA resume pretrain.
 
 train_claris.py Kaggle'a göre ayarlıdır (2× T4, /kaggle yolları, 11.75h oto-dur).
 Bu script onun YEREL, ESNEK (argparse), tek-GPU/CPU dostu sürümüdür. Model mimarisini
@@ -35,7 +35,7 @@ import train_claris as T   # MODEL + veri/tokenize fonksiyonları buradan (kopya
 
 
 def parse_args():
-    ap = argparse.ArgumentParser(description="Calisra yerel pretrain (tek GPU/CPU)")
+    ap = argparse.ArgumentParser(description="Claris yerel pretrain (tek GPU/CPU)")
     ap.add_argument("--data", default=os.path.join(T.ROOT, "data", "fetched"),
                     help="jsonl veri klasörü")
     ap.add_argument("--out", default=os.path.join(T.ROOT, "models"),

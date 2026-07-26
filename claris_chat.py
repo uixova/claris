@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Calisra ile sohbet/çıkarım tarafı... eğittiğimiz Transformer'la akıcı Türkçe üretiyor.
+Claris ile sohbet/çıkarım tarafı... eğittiğimiz Transformer'la akıcı Türkçe üretiyor.
 
 train_claris.py ile eğittiğimiz modeli (models/claris_model.pt) ve BPE'yi yüklüyor,
 sonra top-k/top-p (nucleus) örneklemeyle cevap yazıyor. Sohbet yapısını rol tokenlarıyla
 (<user>/<bot>) kuruyor, yani kim ne dedi belli oluyor.
 
-  python calisra_chat.py                      # oturup sohbet et
-  python calisra_chat.py "merhaba nasılsın"   # tek soru sor, cevabını al
+  python claris_chat.py                      # oturup sohbet et
+  python claris_chat.py "merhaba nasılsın"   # tek soru sor, cevabını al
 """
 
 import os
@@ -26,20 +26,20 @@ except NameError:
     ROOT = os.getcwd()
 MODELS = os.path.join(ROOT, "models")
 LOG_DIR = os.path.join(ROOT, "logs")
-# Sohbet logu KAPALI gelir (gizlilik). Açmak: CALISRA_LOG=1 python calisra_chat.py
-LOG_CHAT = os.environ.get("CALISRA_LOG", "0") == "1"
+# Sohbet logu KAPALI gelir (gizlilik). Açmak: CLARIS_LOG=1 python claris_chat.py
+LOG_CHAT = os.environ.get("CLARIS_LOG", "0") == "1"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def log_chat(user, bot):
-    """Soru/cevabı logs/calisra_chat.jsonl'e ekler (CALISRA_LOG=1 ise). Çıktı kalitesini
+    """Soru/cevabı logs/claris_chat.jsonl'e ekler (CLARIS_LOG=1 ise). Çıktı kalitesini
     sonradan incelemek için. Eğitime/çıkarıma etkisi yok."""
     if not LOG_CHAT:
         return
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
         import json
-        with open(os.path.join(LOG_DIR, "calisra_chat.jsonl"), "a", encoding="utf-8") as f:
+        with open(os.path.join(LOG_DIR, "claris_chat.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps({"t": time.strftime("%Y-%m-%d %H:%M:%S"),
                                 "user": user, "bot": bot}, ensure_ascii=False) + "\n")
     except Exception:
@@ -96,8 +96,8 @@ def generate(tok, model, cfg, prompt, max_new=120, temperature=0.8, top_k=40,
     # KV CACHE: prompt bir kez prefill edilir, sonra adım başına TEK token forward
     # -> tam-bağlam forward'a göre kat kat hızlı. Bağlam dolarsa (pos>=ctx) eski
     # kayan-pencere yoluna düşer (ids[-ctx:] semantiği cache ile temsil edilemez).
-    # Kapatmak: CALISRA_NO_KVCACHE=1 (eski yol birebir durur).
-    use_cache = os.environ.get("CALISRA_NO_KVCACHE", "0") != "1" and len(ids) < ctx
+    # Kapatmak: CLARIS_NO_KVCACHE=1 (eski yol birebir durur).
+    use_cache = os.environ.get("CLARIS_NO_KVCACHE", "0") != "1" and len(ids) < ctx
     caches, pos = None, 0
     for _ in range(max_new):
         if use_cache and caches is not None and pos >= ctx:
@@ -122,12 +122,12 @@ def generate(tok, model, cfg, prompt, max_new=120, temperature=0.8, top_k=40,
             logits = logits / temperature
 
         gen = ids[start:]                          # üretilen yanıt (loop önleme bunun üstünde)
-        # Tekrar cezası: son üretilen tokenlar + PROMPT tokenları kıs ("Merhaba Calisra" echo'su gider)
+        # Tekrar cezası: son üretilen tokenlar + PROMPT tokenları kıs ("Merhaba Claris" echo'su gider)
         if rep_penalty and rep_penalty != 1.0:
             for t in set(gen[-60:]) | prompt_toks:
                 logits[t] = logits[t] / rep_penalty if logits[t] > 0 else logits[t] * rep_penalty
         # no-repeat-ngram: aynı n-gram'ı YASAKLA — TÜM geçmişi (prompt+yanıt) tara
-        # ("Hava nasıl Calisra?" gibi prompt'u aynen kopyalamayı kırar)
+        # ("Hava nasıl Claris?" gibi prompt'u aynen kopyalamayı kırar)
         hist = ids[1:]                             # bos hariç (prompt + üretilen)
         if no_repeat_ngram and len(hist) >= no_repeat_ngram - 1:
             prefix = tuple(hist[-(no_repeat_ngram - 1):])
@@ -165,7 +165,7 @@ def generate(tok, model, cfg, prompt, max_new=120, temperature=0.8, top_k=40,
 # on binlerce özel ismi otomatik öğrenir; bu elle listeyi genişletmeye gerek YOK).
 # Türkçe-doğru biçimleriyle: İstanbul/İzmir/İran (İ noktalı), Irak (I noktasız).
 _PROPER = {
-    "calisra": "Calisra", "türkiye": "Türkiye", "türk": "Türk", "türkçe": "Türkçe",
+    "claris": "Claris", "türkiye": "Türkiye", "türk": "Türk", "türkçe": "Türkçe",
     "türkler": "Türkler", "atatürk": "Atatürk", "istanbul": "İstanbul",
     "ankara": "Ankara", "izmir": "İzmir", "bursa": "Bursa", "antalya": "Antalya",
     "adana": "Adana", "konya": "Konya", "gaziantep": "Gaziantep", "mersin": "Mersin",
@@ -222,12 +222,12 @@ def _answer(tok, model, cfg, q):
 def main():
     tok, model, cfg = load()
     nparam = sum(p.numel() for p in model.parameters())
-    print(f"Calisra hazır ({nparam/1e6:.1f}M param, bağlam {cfg['context']}). "
+    print(f"Claris hazır ({nparam/1e6:.1f}M param, bağlam {cfg['context']}). "
           f"Çıkmak için 'exit'.\n")
     if len(sys.argv) > 1:
         q = " ".join(sys.argv[1:])
         a = _answer(tok, model, cfg, q)
-        print("Calisra:", a)
+        print("Claris:", a)
         log_chat(q, a)
         return
     while True:
@@ -238,7 +238,7 @@ def main():
         if not q or q.lower() in ("exit", "quit", "kapat"):
             break
         a = _answer(tok, model, cfg, q)
-        print("Calisra:", a, "\n")
+        print("Claris:", a, "\n")
         log_chat(q, a)
 
 

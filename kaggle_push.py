@@ -27,13 +27,13 @@ Kullanım:
   python kaggle_push.py model    # claris_model.pt               -> <sen>/claris-resume
   python kaggle_push.py code     # bpe.py + bitlinear.py + train_claris.py + bpe.json -> <sen>/claris-code
 
-TOKEN SHARD'LARI: Kaggle tek-dataset sınırı 20GB -> token cache CALISRA_SHARD_GB'lık
+TOKEN SHARD'LARI: Kaggle tek-dataset sınırı 20GB -> token cache CLARIS_SHARD_GB'lık
 (vars. 16GB) parçalara bölünür (build_tokens.py otomatik yapar). Her shard AYRI dataset:
   calisra_tokens.bin      -> calisra-tokens
   calisra_tokens_001.bin  -> calisra-tokens-001   (doğunca notebook'a EKLEMEYİ UNUTMA)
 meta.json her zaman SON (büyüyen) shard'ın dataset'iyle gider; eski dataset'lerdeki
 bayat meta kopyaları zararsız (eğitim en çok dosya kapsayan GEÇERLİ meta'yı seçer).
-Değişiklik takibi .calisra_push_state.json'da (dosya adı -> son itilen boyut) ->
+Değişiklik takibi .claris_push_state.json'da (dosya adı -> son itilen boyut) ->
 dondurulmuş 16GB shard'lar bir daha YÜKLENMEZ; veri günü sadece son shard gider.
 
 İlk koşuda dataset YOKSA oluşturur (private), VARSA "New Version" atar.
@@ -61,7 +61,7 @@ try:
 except NameError:
     ROOT = os.getcwd()
 M = os.path.join(ROOT, "models")
-STATE = os.path.join(ROOT, ".calisra_push_state.json")
+STATE = os.path.join(ROOT, ".claris_push_state.json")
 
 TARGETS = {
     "model":  {"slug": "claris-resume",

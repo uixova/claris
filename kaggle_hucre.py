@@ -52,9 +52,9 @@ env = dict(
     # N=0 OOM. N=8 İLK denemede ucu ucuna OOM yedi (13.97GB, 64MB free). N=10: 2 blok
     # daha recompute -> ~-0.5GB. expandable_segments (yukarıda) + N=10 birlikte rahat pay.
     # Hâlâ OOM olursa -> N=12, N=16, N=24 (tam, en güvenli). Bol yer varsa -> N=8, N=6 dene.
-    CLARIS_CKPT_N="10",
+    CLARIS_CKPT_N="12",
     # SÜRE — HER COMMIT'TE BURAYI AYARLA (yukarıdaki nota bak)
-    CLARIS_MAX_HOURS="11.5",
+    CLARIS_MAX_HOURS="11.65",
 )
 
 # --- 3) Eğit (2×T4 DDP) ---

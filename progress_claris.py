@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Calisra şu an ne durumda diye bakmak için küçük bir araç.
+Claris şu an ne durumda diye bakmak için küçük bir araç.
 Modeli eğitmeye falan gerek yok; sadece kayıt dosyasını (.pt) açıp
 "şu ana kadar kaç token gördü, kaç kere eğitildi, val kaç" gibi şeyleri söylüyor.
 
@@ -36,11 +36,11 @@ cfg = ck.get("config", {})
 sd = ck.get("model", {})
 nparam = sum(v.numel() for v in sd.values())
 # weight tying: embed_tokens + lm_head AYNI tensör ama state_dict'te İKİ anahtar ->
-# çift sayma (551M görünürdü, gerçek ~502M). Tek say (calisra_chat ile tutarlı).
+# çift sayma (çift-sayım hatası; tek say). Tek say (claris_chat ile tutarlı).
 if "embed_tokens.weight" in sd and "lm_head.weight" in sd:
     nparam -= sd["lm_head.weight"].numel()
 
-# Kabaca ne kadar doldu göstergesi. Hedef ~25B token (bkz. calisra.md §8: 25-30B).
+# Kabaca ne kadar doldu göstergesi. Hedef ~25B token (bkz. claris.md: 25-30B).
 TARGET_TOK = 25e9
 pct = min(100, tok / TARGET_TOK * 100)
 

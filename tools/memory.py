@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Memory Buffer İSKELETİ (calisra.md §9.5 — henüz bağlı değil): 2048 bağlam sınırını
+Memory Buffer İSKELETİ (claris.md §9.5 — henüz bağlı değil): 2048 bağlam sınırını
 "Summary Memory + Sliding Window" ile aşmak için arayüz sözleşmesi.
 
 Plan:
@@ -10,7 +10,7 @@ Plan:
      -> her yeni soruda <sys> tokenıyla context'in BAŞINA enjekte edilir
   [Yeni girdi (fiziksel 2048 token TEMİZ kalır)]
 
-Enjeksiyon sözleşmesi (calisra_chat.generate ile):
+Enjeksiyon sözleşmesi (claris_chat.generate ile):
   ids = [<bos>, <sys>] + encode(memory.summary()) + [<user>] + encode(soru) + [<bot>]
 Model fiziksel 2048 ile çalışmaya devam eder (VRAM sabit) ama özet sayesinde
 "asla unutmayan" gibi davranır. SFT'den SONRA bağlanacak (özet formatını model
