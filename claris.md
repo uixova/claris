@@ -61,10 +61,14 @@ Claris kendi jsonl'ini TUTMAZ; Calisra'nın 33B bin'ini **symlink** ile OKUR.
 
 ## 5. Yol haritası
 
-- [x] BitLinear + birim test · [x] BitNet model (~335M, forward/backward + STE doğrulandı)
-- [x] Eğitim loop (sentetik veri, loss 9.4→8.8 = öğreniyor) · [x] BIN_RO güvenlik
-- [ ] Kaggle 2×T4 gerçek pretraining (env-süre + resume) · [ ] ~5-10B token, Calisra fp16 kıyas
-- [ ] SFT (Calisra hattı, loss SUM reduction) · [ ] **v1.0 GGUF (bitnet.cpp, CPU ~66MB)**
+- [x] BitLinear + birim test · [x] BitNet model (~513M, forward/backward + STE doğrulandı)
+- [x] Eğitim loop (loss düşüyor) · [x] BIN_RO güvenlik · [x] Kaggle 2×T4 ilk commit (~8.7k→N=10)
+- [ ] ~5-10B token, Calisra fp16 kıyas (aynı-token val)
+- [ ] SFT (Calisra hattı, loss SUM reduction)
+- [ ] **DPO — hizalama** (SFT sonrası; base→SFT→DPO). RLHF'in küçük-model kararlı hâli,
+  tercih çiftleriyle (insan altın-standart + API ölçek). BitNet DPO'ya uyumlu — sadece
+  policy güncellemesi, ternary mimari fark etmez. Detay: Calisra `calisra.md` §5.2.
+- [ ] **v1.0 GGUF (bitnet.cpp, CPU ~100MB)**
 
 ---
 
