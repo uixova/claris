@@ -42,7 +42,7 @@ Blok: `x = x + attn(x); x = x + mlp(x)` (norm'lar BitLinear'ların SubLN'inde).
 - **LR 6e-4** (Calisra'nın 2×'i) — ternary ayrık adımlarla hareket eder, büyük güncelleme ister.
 - **İki-aşama LR/WD** (opsiyonel, `CLARIS_LR_TOTAL=<adım>`): [0,mid] yüksek-tepe cosine + WD 0.1;
   [mid,T] ANİ düşük tepe + WD 0. Sabit ufuk (resume'da kaymaz). `=0` (vars.) → tek-aşama cosine.
-- Gerisi Calisra'dan **aynen** (kanıtlı): DDP 2×T4, 8-bit AdamW, seçici gradient checkpointing,
+- Gerisi Calisra'dan **aynen** (kanıtlı): DDP 2×GPU, 8-bit AdamW, seçici gradient checkpointing,
   torch.compile, chunked CE, shard'lı memmap, RAM-data, env MAX_HOURS oto-dur, resume+config-kilit
   (`arch:"bitnet"` → Calisra fp16 ckpt'i yanlışlıkla yüklenmez), bounded BPE cache, bf16-guard.
 
@@ -54,15 +54,15 @@ Claris kendi jsonl'ini TUTMAZ; Calisra'nın 33B bin'ini **symlink** ile OKUR.
 - **`CLARIS_BIN_RO=1` (varsayılan AÇIK):** Claris paylaşılan bin'e ASLA yazamaz. Cache tam
   çözülmezse HATA verir (symlink'e "wb" yazıp Calisra'nın gerçek bin'ini truncate etmesin —
   bu koruma bir kez öğrenildi). Calisra yeni shard eklerse `models/`'teki symlink'i güncelle.
-- Kaggle: Calisra'nın MEVCUT `calisra-tokens*` dataset'leri + bpe.json doğrudan eklenir.
-  Ayrı token dataset'i, re-tokenize, çevirme YOK.
+- Eğitim ortamı: Calisra'nın mevcut `calisra_tokens*` cache'i + bpe.json doğrudan eklenir.
+  Ayrı token kaynağı, re-tokenize, çevirme YOK.
 
 ---
 
 ## 5. Yol haritası
 
 - [x] BitLinear + birim test · [x] BitNet model (~513M, forward/backward + STE doğrulandı)
-- [x] Eğitim loop (loss düşüyor) · [x] BIN_RO güvenlik · [x] Kaggle 2×T4 ilk commit (~8.7k→N=10)
+- [x] Eğitim loop (loss düşüyor) · [x] BIN_RO güvenlik · [x] uzak 2×GPU ilk commit (~8.7k→N=10)
 - [ ] ~5-10B token, Calisra fp16 kıyas (aynı-token val)
 - [ ] SFT (Calisra hattı, loss SUM reduction)
 - [ ] **DPO — hizalama** (SFT sonrası; base→SFT→DPO). RLHF'in küçük-model kararlı hâli,

@@ -22,7 +22,7 @@ import json
 import glob
 from collections import Counter
 
-try:                                  # Kaggle hücresine yapıştırınca __file__ yok
+try:                                  # bir hücreye yapıştırınca __file__ tanımsız
     ROOT = os.path.dirname(os.path.abspath(__file__))
 except NameError:
     ROOT = os.getcwd()

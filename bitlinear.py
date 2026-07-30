@@ -109,7 +109,7 @@ def _test():
     rel = (wd - w).abs().mean() / w.abs().mean()
     check("weight quant sapması makul (<1.0)", rel.item() < 1.0, f"rel={rel.item():.3f}")
 
-    # 6) forward fp16 autocast altında çalışıyor (T4 yolu)
+    # 6) forward fp16 autocast altında çalışıyor
     if torch.cuda.is_available():
         lin.cuda()
         with torch.autocast("cuda", dtype=torch.float16):

@@ -45,8 +45,8 @@ BitNet b1.58 = Llama mimarisi + 3 değişiklik (bkz. [claris.md](claris.md)):
 **Önemli:** BitNet verisi standart tokenize metin — 1.58-bit olan AĞIRLIKLAR, veri değil.
 Calisra'nın temiz 33B token bin'i + bpe.json **doğrudan** kullanılır:
 - `models/` içindeki `calisra_tokens*.bin` + `bpe.json` = Calisra'ya **symlink** (66GB kopya YOK).
-- Kaggle: Calisra'nın MEVCUT dataset'leri (`calisra-tokens/-001/-002/-003` + `calisra-code`'un
-  bpe.json'u) notebook'a **doğrudan eklenir**. Ayrı token dataset'i, re-tokenize, çevirme YOK.
+- Eğitim ortamı: Calisra'nın mevcut token cache'i + bpe.json doğrudan girdi olarak eklenir.
+  Ayrı token kaynağı, re-tokenize, çevirme YOK.
 
 > ### ⚠️ `CLARIS_BIN_RO=1` (varsayılan AÇIK) — kapatma
 > Paylaşılan bin bir **symlink**. Claris onu sadece okur; cache uyumsuz görünürse yeniden
@@ -62,30 +62,18 @@ Calisra'nın temiz 33B token bin'i + bpe.json **doğrudan** kullanılır:
 # yerel deneme (tiny config, CPU/GPU)
 CLARIS_TRUST_CACHE=1 python train_local_claris.py --small --device cpu --max-steps 50
 
-# Kaggle 2×T4 DDP (calisra-tokens + claris-code dataset'leri ekli):
-NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 NCCL_SHM_DISABLE=1 CLARIS_TRUST_CACHE=1 \
-CLARIS_MAX_HOURS=6 torchrun --standalone --nproc_per_node=2 train_claris.py
+# uzak 2×GPU DDP (veri/çıktı yolları env'den):
+CLARIS_INPUT_DIRS=/veri CLARIS_OUT_DIR=/cikti CLARIS_TRUST_CACHE=1 \
+NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 NCCL_SHM_DISABLE=1 \
+torchrun --standalone --nproc_per_node=2 train_claris.py
 
 # ilerleme / sohbet
 python progress_claris.py
 python claris_chat.py "merhaba"
 ```
 
-**Süre env'den:** `CLARIS_MAX_HOURS=6` (Calisra da eğitimdeyse) / `=11.75` (hesap taze).
+**Süre env'den:** `CLARIS_MAX_HOURS=11.75` (uzak commit süre limiti).
 Diğer env: `CLARIS_LAYERS/DMODEL/HEADS/BATCH/ACCUM/CKPT_N/LR_TOTAL` — hepsi Calisra deseni.
-
----
-
-## Kaggle akışı (Calisra ile PAYLAŞIMLI veri)
-
-| Dataset | İçerik | Kaynak |
-|---|---|---|
-| **claris-code** (YENİ) | bitlinear.py + train_claris.py + bpe.py + bpe.json | `kaggle_push.py code` |
-| **claris-resume** (YENİ) | claris_model.pt (ayrı beyin) | `kaggle_push.py model` |
-| calisra-tokens / -001 / -002 / -003 | 33.3B bin, 4 shard (PAYLAŞ) | Calisra'nın mevcut dataset'i |
-
-`kaggle_push.py tokens` bilinçli engelli (veri Calisra'dan paylaşılır). AFK upload:
-`bash .claris_upload.sh` (ekran uyumaz, poweroff yok).
 
 ---
 
@@ -94,7 +82,7 @@ Diğer env: `CLARIS_LAYERS/DMODEL/HEADS/BATCH/ACCUM/CKPT_N/LR_TOTAL` — hepsi C
 - [x] BitNet model (~513M, ReLU² FFN, SubLN) — forward/backward doğrulandı
 - [x] Calisra optimizasyonları (DDP/8bit/ckpt/compile/chunked-CE/shard/bounded-cache) taşındı
 - [x] Veri symlink (Calisra bin+bpe paylaşımı)
-- [ ] Kaggle 2×T4 gerçek pretraining (env-süre commit + resume)
+- [ ] Uzak 2×GPU gerçek pretraining (env-süre commit + resume)
 - [ ] ~5-10B token → akıcı Türkçe + Calisra fp16 ile kıyas
 - [ ] SFT (Calisra hattı, loss SUM reduction)
 - [ ] **v1.0 GGUF export** (bitnet.cpp, CPU'da torch'suz ~66MB)

@@ -17,13 +17,12 @@ Akış:
   3) Transformer'ı next-token tahminiyle eğit (context = CONTEXT_LEN token)
   4) models/claris_model.pt'yi kaydet (+ claris_chat.py ile çalıştırırsın)
 
-Kaggle'da tek hücre: DATA_DIRS'i ayarla, çalıştır.
+Veri/çıktı yolları env'den: CLARIS_INPUT_DIRS (: ile ayrık), CLARIS_OUT_DIR.
 """
 
 import os
-# --- VRAM FRAGMANTASYON ÖNLEYİCİ: torch import'undan ÖNCE set EDİLMELİ ---
-# expandable_segments: CUDA ayırıcı bloklarını büyütülebilir yapar -> parçalanmadan
-# (fragmentation) kaynaklı OOM düşer, aynı VRAM'de daha rahat sığar. T4'te güvenli.
+# torch'tan ÖNCE set edilmeli: expandable_segments ayırıcıyı büyütülebilir yapar,
+# parçalanma kaynaklı OOM'u düşürür.
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import sys
 import json
@@ -35,52 +34,53 @@ import contextlib
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.utils.checkpoint                       # gradient checkpointing (550M+ctx2048 VRAM)
+import torch.utils.checkpoint                       # gradient checkpointing (VRAM tasarrufu)
 from torch.nn import functional as F
 
-# --- DONANIM HIZ BAYRAKLARI ---
-# T4 (Turing/sm75) TF32 DESTEKLEMEZ -> bu iki bayrak T4'te no-op (zararsız), ama Ampere+
-# (4090/A100) çalıştırırsan bedava ~1.3x matmul hızı verir. cudnn.benchmark: şekil SABİT
-# (B,T değişmez) olduğu için ilk adımda en hızlı çekirdeği seçip kilitler -> kalıcı hız.
+# Ampere+ (TF32) GPU'da bedava matmul hızı; eski GPU'da no-op. Şekil sabit olduğu için
+# cudnn.benchmark ilk adımda en hızlı çekirdeği seçip kilitler.
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.benchmark = True
 try:
-    torch.set_float32_matmul_precision("high")        # Ampere+ TF32 yolu; T4'te etkisiz/zararsız
+    torch.set_float32_matmul_precision("high")
 except Exception:
     pass
-# torch._dynamo MODÜL DÜZEYİNDE import edilmeli: main() İÇİNDE 'import torch._dynamo' yapılırsa
-# Python 'torch'u o fonksiyonda LOCAL sayar -> fonksiyon başındaki torch.manual_seed() UnboundLocalError verir.
+# torch._dynamo modül düzeyinde import edilmeli (main içinde import 'torch'u local yapar
+# -> manual_seed UnboundLocalError). compile çeviremezse sessizce eager'a düşer.
 try:
     import torch._dynamo
-    torch._dynamo.config.suppress_errors = True       # compile bir grafı çeviremezse SESSİZCE eager (çökme YOK)
+    torch._dynamo.config.suppress_errors = True
 except Exception:
     pass
 
-# Kaggle'da kod HÜCREYE YAPIŞTIRILINCA __file__ tanımsızdır -> getcwd kullan
+# hücreye yapıştırınca __file__ tanımsız -> getcwd
 try:
     ROOT = os.path.dirname(os.path.abspath(__file__))
 except NameError:
     ROOT = os.getcwd()
-# bpe.py'yi bulabilmek için yolu ekle (aynı klasörde olmalı)
 for _p in (ROOT, os.getcwd()):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-# Kaggle: bpe.py datasete eklendiyse /kaggle/input içinde OTOMATİK bul
-if os.path.isdir("/kaggle/input"):
-    for _root, _, _files in os.walk("/kaggle/input"):
-        if "bpe.py" in _files and _root not in sys.path:
-            sys.path.insert(0, _root)
-            break
+
+# Girdi dizinleri env'den (: ile ayrık); yerelde varsayılan data/. Uzak eğitim ortamı
+# bu env'i kendi veri mount yoluna set eder.
+INPUT_DIRS = [p for p in os.environ.get("CLARIS_INPUT_DIRS", "").split(":") if p.strip()]
+
+# bpe.py girdi dizinlerinden birine eklenmişse otomatik bul
+for _d in INPUT_DIRS:
+    if os.path.isdir(_d):
+        for _root, _, _files in os.walk(_d):
+            if "bpe.py" in _files and _root not in sys.path:
+                sys.path.insert(0, _root)
+                break
 
 import bpe as bpemod
 from bitlinear import BitLinear   # BitNet çekirdeği: ternary ağırlık + int8 akt + STE + SubLN
 
 # VERİ VE ÇIKTI YOLLARI
-# /kaggle/input'u en içine kadar tarıyoruz, yani hangi dataset olursa olsun altındaki
-# bütün *.jsonl'leri buluyor; slug'ı bilmene gerek yok. Yerelde data/ klasörünü kullanır.
-DATA_DIRS = ["/kaggle/input", os.path.join(ROOT, "data")]
-OUT = "/kaggle/working" if os.path.isdir("/kaggle/working") else os.path.join(ROOT, "models")
+DATA_DIRS = INPUT_DIRS + [os.path.join(ROOT, "data")]
+OUT = os.environ.get("CLARIS_OUT_DIR") or os.path.join(ROOT, "models")
 BPE_PATH = os.path.join(OUT, "bpe.json")
 # BEYİN AYRI, VERİ ORTAK:
 #   - ckpt adı "claris_model.pt" -> Calisra'nın calisra_model.pt'siyle ASLA karışmaz,
@@ -96,12 +96,11 @@ CKPT_NAMES = ("claris_model.pt",)                   # resume ederken aranacak do
 TOKENS_BIN = os.path.join(OUT, "calisra_tokens.bin")
 TOKENS_META = os.path.join(OUT, "calisra_tokens.meta.json")
 TOKEN_STEMS = ("calisra_tokens",)                   # token cache dosyasının adı (PAYLAŞILAN)
-# TOKEN CACHE SHARD'LARI: Kaggle tek-dataset sınırı 20GB -> bin tek dosyada büyüyemez.
-# Cache SHARD_CAP'e ulaşınca yeni parça açılır: calisra_tokens.bin (shard 0),
-# calisra_tokens_001.bin, _002... Her shard AYRI Kaggle dataset'ine gider
-# (kaggle_push.py halleder). Eğitim TÜM shard'ları tek sanal akış gibi memmap'ler,
-# örnekleme yine havuzun TAMAMINDA rastgele (sırayla-shard-işleme YOK -> order bias yok).
-# Meta shard adlarını (basename) tutar -> dataset yolları değişse de bulunur.
+# TOKEN CACHE SHARD'LARI: tek dataset boyut sınırı yüzünden bin tek dosyada büyüyemez.
+# Cache SHARD_CAP'e ulaşınca yeni parça açılır (calisra_tokens_001.bin, _002...). Eğitim
+# tüm shard'ları tek sanal akış gibi memmap'ler; örnekleme havuzun tamamında rastgele
+# (sırayla-shard-işleme yok -> order bias yok). Meta shard basename'lerini tutar -> yollar
+# değişse de bulunur.
 SHARD_CAP_BYTES = max(2, int(float(os.environ.get("CLARIS_SHARD_GB", "16")) * 1024**3)) & ~1
 
 
@@ -133,38 +132,19 @@ DROPOUT = 0.1
 # güçlü) -> 335M BitNet ≈ ~250M-fp16 etkin kalite. Aynı-token Calisra kıyası bunu gösterecek.
 
 # EĞİTİM AYARLARI
-# Kaggle'da 2x T4 (2×16GB) varsa ikisini birden kullanıyoruz. Toplam batch =
-# PER_GPU_BATCH × GPU sayısı (aşağıda device belli olunca hesaplanıyor).
-# Ayarları env ile değiştiriyoruz, kodu elle düzenlemeye gerek yok. Varsayılan T4×2:
-#   Kiralık 4090/5090 için: CLARIS_CKPT=0 CLARIS_BATCH=16 CLARIS_ACCUM=3 python train_transformer.py
-#   Bedava T4×2 için:       python train_transformer.py
-# NOT: 335M/ctx2048 Calisra'nın 502M/ctx2048'inden KÜÇÜK, ama BitLinear quant ara-tensörleri
-# (act_quant/weight_quant + STE) ekstra aktivasyon VRAM'i yiyor -> net kazanç ölçülmeli.
-# Varsayılanlar Calisra'nın T4'te KANITLI ayarlarıyla aynı (güvenli başlangıç).
-# İLK COMMIT'İ izle: OOM olursa CLARIS_BATCH=2, sığıyorsa CLARIS_CKPT_N'i düşürüp hız kazan.
-PER_GPU_BATCH = int(os.environ.get("CLARIS_BATCH", "3"))   # T4: 3 (Calisra'da kanıtlı).
-                                                            # 4090(24GB): 12-16 dene.
+# Toplam batch = PER_GPU_BATCH × GPU sayısı (device belli olunca hesaplanır). Ayarlar env'den,
+# kodu elle düzenlemeye gerek yok. Bol VRAM'de: CLARIS_CKPT=0 CLARIS_BATCH=16 CLARIS_ACCUM=3.
+# Not: BitLinear quant ara-tensörleri (act/weight_quant + STE) ekstra aktivasyon VRAM'i yer.
+PER_GPU_BATCH = int(os.environ.get("CLARIS_BATCH", "3"))   # dar VRAM: 3 · bol VRAM: 16+
 GRAD_ACCUM = int(os.environ.get("CLARIS_ACCUM", "5"))      # efektif batch = BATCH × N_GPU × ACCUM
-                                                            # (3×2×5=30 -- Calisra ile aynı)
-GRAD_CKPT = os.environ.get("CLARIS_CKPT", "1") != "0"      # T4: 1 (VRAM dar). 4090: 0 (bol VRAM, +%25 hız)
+GRAD_CKPT = os.environ.get("CLARIS_CKPT", "1") != "0"      # aktivasyon checkpoint (dar VRAM'de aç)
 USE_8BIT = os.environ.get("CLARIS_8BIT", "1") != "0"       # 8-bit AdamW (VRAM -%75). 1=aç, 0=standart
-# SEÇİCİ CHECKPOINT (Megatron/frontier "selective activation recomputation"): kaç bloğu
-# yeniden-hesapla (recompute). Az = daha az recompute = DAHA HIZLI ama daha çok VRAM. resume-GÜVENLİ
-# (sadece çalışma-zamanı; AĞIRLIK DEĞİŞMEZ). Varsayılan 12 = ilk 12 blok recompute, son 12
-# serbest -- 335M'de sığması beklenir. İlk commit OOM'suz geçerse 8 -> 4 indirip hız kazan
-# (Calisra'da CKPT_N=4 ile VRAM 13.5/15GB'a oturmuştu). Hız için düşürmeden ÖNCE OOM'suz
-# bir commit tamamla. OOM olursa N_LAYER (tam checkpoint) en güvenli.
+# SEÇİCİ CHECKPOINT: kaç bloğu yeniden-hesapla (recompute). Az = daha hızlı ama daha çok VRAM.
+# Sadece çalışma-zamanı, ağırlık değişmez -> resume-güvenli. Varsayılan 12 (son bloklar serbest).
 GRAD_CKPT_N = int(os.environ.get("CLARIS_CKPT_N", "12"))
-# HIZLANDIRMA BAYRAKLARI (yeni):
-#   CLARIS_COMPILE=1  (varsayılan) -> torch.compile füzyon (T4 ~1.2-1.5x). 0 = kapat (sorun olursa).
-#   CLARIS_PARALLEL_TOK=1 (varsayılan) -> çok-süreçli tokenize (~4x veri işleme). 0 = seri.
-#   CLARIS_RAM_DATA=auto (varsayılan) -> token .bin RAM'e (30GB RAM kullan, disk titremesi yok). 1=zorla, 0=memmap.
-#   CLARIS_CKPT_N=<sayı> -> seçici recompute (yukarı bak). Hız için 16->12->8 indir, OOM görene kadar.
-#   AGRESİF (VRAM payın varsa, OOM riskli ama resume-uyumlu): CLARIS_CKPT=0 CLARIS_BATCH=4
-#     -> recompute kalkar + daha dolu batch = belirgin ek hız. Önce 1 commit dene, OOM olmazsa kalsın.
-#   - PER_GPU_BATCH: 550M+ctx2048. T4'te 4 -> GPU0 14.5/15 (OOM riski) -> 3 güvenli. 4090'da 16-20.
-#   - GRAD_ACCUM: T4 efektif 3×2×5=30. 4090 tek-GPU efektif 16×1×3=48 (~yeterli).
-#   - GRAD_CKPT: aktivasyon VRAM -%70 ama -%20 hız. 24GB'da KAPAT -> recompute yok -> hızlı.
+# HIZ BAYRAKLARI:
+#   CLARIS_COMPILE=1 -> torch.compile füzyon. CLARIS_PARALLEL_TOK=1 -> çok-süreçli tokenize.
+#   CLARIS_RAM_DATA=auto -> token .bin RAM'e. CLARIS_CKPT_N -> seçici recompute (yukarı bak).
 MAX_ITERS = 0             # 0 = OTOMATİK: adım sayısı VERİ MİKTARINA göre (PASSES geçiş)
 PASSES = 2                # veride kaç tam geçiş (epoch). Paylaşılan havuz 33B token / 335M param
                           # = ~98 tok/param -> tek geçiş bile MAX_HOURS'u kat kat aşıyor; süreyi
@@ -174,9 +154,8 @@ DIALOG_REPEAT = 1         # 1 = tekrar YOK (oversample kapalı). Doğal+çeşitl
 EVAL_EVERY = 500
 PROGRESS_EVERY = 20       # her bu kadar adımda HAFİF ilerleme (loss+tok/s) bas -> körlük yok.
                           # eval (pahalı) hâlâ EVAL_EVERY'de; bu sadece nabız + throughput ölçümü.
-# SÜRE-TABANLI OTO-DUR. Kaggle: 12h commit'e ÇARPMADAN 11.75h'ta durup NORMAL kaydeder
-# (12h timeout = "failed" = output gider). RunPod/kiralık: kirayı sen belirlersin -> env ile
-# uzat. Örn 24h kiralarsan: CLARIS_MAX_HOURS=23.5 (son yarım saat kala güvenli dur+kaydet).
+# SÜRE-TABANLI OTO-DUR: süre limitine ÇARPMADAN biraz önce durup normal kaydeder (timeout =
+# "failed" = çıktı gider). Kirayı sen belirlersin -> env ile uzat (ör. 24h'de 23.5).
 MAX_HOURS = float(os.environ.get("CLARIS_MAX_HOURS", "11.75"))
 # 335M'de 6e-4 idi (ternary yüksek LR sever). 513M biraz daha büyük -> 5.5e-4: büyük
 # model biraz düşük tepe LR ile daha kararlı yakınsar. Hâlâ Calisra fp16'nın (3e-4)
@@ -190,18 +169,12 @@ VAL_FRAC = 0.02
 RESUME = True             # models/claris_model.pt VARSA sıfırdan değil ÜSTÜNE devam et
 SEED = 42
 
-# DDP mi DataParallel mı belirliyoruz
-# DDP'de iki GPU eşit ve bağımsız çalışıyor, yani boş VRAM boşa gitmiyor, GPU0 darboğazı
-# olmuyor ve ~2x hız çıkıyor. torchrun ile açılıyor:
-#   DDP:    !torchrun --nproc_per_node=2 train_transformer.py
-#   Normal: python train_transformer.py   (WORLD_SIZE yoksa tek süreç = DataParallel)
-#
-# Kaggle notu: kodu hücreye yapıştırdıysan torchrun çalışmaz (diskte .py yok)... önce
-# "%%writefile train_transformer.py" ile dosyaya yaz, sonra ayrı hücrede çalıştır. Ayrıca
-# Kaggle'ın sanal 2x T4'ünde NCCL sessizce takılabiliyor (hata vermeden sonsuz bekler),
-# o yüzden şu env'lerle başlat:
-#   !NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 NCCL_SHM_DISABLE=1 \
-#     torchrun --standalone --nproc_per_node=2 train_transformer.py
+# DDP mi DataParallel mı
+# DDP'de GPU'lar eşit+bağımsız çalışır (GPU0 darboğazı yok, ~2x hız). torchrun ile açılır:
+#   torchrun --nproc_per_node=2 train_claris.py   (WORLD_SIZE yoksa tek süreç = DataParallel)
+# Not: kod bir hücreye yapıştırıldıysa torchrun çalışmaz (diskte .py yok) -> önce dosyaya yaz.
+# Çok-GPU ortamında NCCL bazen sessiz takılır -> şu env'lerle başlat:
+#   NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 NCCL_SHM_DISABLE=1 torchrun --standalone --nproc_per_node=2 ...
 DDP_RANK = int(os.environ.get("RANK", "-1"))
 DDP_LOCAL_RANK = int(os.environ.get("LOCAL_RANK", "0"))
 DDP_WORLD = int(os.environ.get("WORLD_SIZE", "1"))
@@ -218,16 +191,13 @@ else:
     BATCH_SIZE = PER_GPU_BATCH * max(1, N_GPU)   # DP: tek süreç tüm GPU'ları besler
 IS_CUDA = str(device).startswith("cuda")         # "cuda" veya "cuda:1" -> True
 
-# AMP DTYPE: bf16 (Ampere+/Ada: 3090/4090/A5000/A100...) sayısal olarak fp16'dan GÜVENLİ —
-# fp32 exponent aralığı -> overflow YOK -> GradScaler GEREKMEZ + biraz daha hızlı/kararlı.
-# ⚠️ KARAR compute capability >= 8.0 İLE VERİLİR, is_bf16_supported() İLE DEĞİL:
-# yeni PyTorch is_bf16_supported() T4'te (sm75) bile True dönebiliyor (EMÜLASYON) ->
-# T4'te bf16 = tensor-core yok + SDPA mem-efficient çekirdeği sm75'te bf16 desteklemez ->
-# math-fallback = (B,H,T,T) attention matrisi ham açılır = kesin OOM. sm80+ şartı bunu
-# kökten kapatır: T4 fp16 (eski davranış birebir), A5000/4090/A100 bf16.
-# Weights fp32 master kalır -> commit'ler arası dtype değişse bile RESUME GÜVENLİ
-# (T4'te fp16 eğit, sonra kiralık A5000'de bf16'yla DEVAM et = sorunsuz; ağırlık aynı).
-# Elle geçersiz kılma: CLARIS_BF16=0 (kapat) / 1 (sm80+ ise aç; sm80 altında yine kapalı).
+# AMP DTYPE: bf16 (sm80+: Ampere/Ada/Hopper) sayısal olarak fp16'dan güvenli — geniş exponent
+# aralığı -> overflow yok -> GradScaler gerekmez. Karar compute capability >= 8.0 ile verilir,
+# is_bf16_supported() ile DEĞİL: yeni PyTorch eski GPU'da da True dönebiliyor (emülasyon), ama
+# sm<8.0'da bf16 = tensor-core yok + mem-efficient SDPA bf16 desteklemez -> attention matrisi
+# ham açılır = OOM. sm80+ şartı bunu kapatır. Ağırlık fp32 master kalır -> dtype değişse de
+# resume güvenli (sm<8.0'da fp16 eğit, sonra sm80+'da bf16'yla devam = sorunsuz).
+# Elle: CLARIS_BF16=0 (kapat) / 1 (sm80+ ise aç).
 try:
     _cap_ok = (IS_CUDA and torch.cuda.is_available()
                and torch.cuda.get_device_properties(
@@ -238,10 +208,9 @@ except Exception:
     USE_BF16 = False
 AMP_DTYPE = torch.bfloat16 if USE_BF16 else torch.float16
 
-# GPU-FARKINDALIK: env verilmediyse VRAM'e göre mantıklı varsayılanı SEÇ.
-# 16GB (T4/P100/V100): 3/5/ckpt12 KALIR (T4'te kanıtlanmış; 4'te GPU0 14.5/15 OOM sınırı).
-# 22GB+ (4090/A5000): batch 16, accum 3, checkpoint kapalı (recompute yok = +%25-30 hız).
-# 40GB+ (A100): batch 24, accum 2. Elle CLARIS_BATCH/ACCUM/CKPT_N verildiyse DOKUNMAZ.
+# GPU-FARKINDALIK: env verilmediyse VRAM'e göre mantıklı varsayılanı seç.
+# 16GB: 3/5/ckpt12. 22GB+: batch 16, accum 3, checkpoint kapalı. 40GB+: batch 24, accum 2.
+# Elle CLARIS_BATCH/ACCUM/CKPT_N verildiyse dokunmaz.
 if IS_CUDA and torch.cuda.is_available():
     try:
         _props = torch.cuda.get_device_properties(DDP_LOCAL_RANK if USE_DDP else 0)
@@ -253,10 +222,8 @@ if IS_CUDA and torch.cuda.is_available():
         if "CLARIS_CKPT_N" not in os.environ and _gb >= 22:
             GRAD_CKPT_N = 0                      # bol VRAM -> recompute tamamen kapalı
         if _props.major < 7 and IS_MAIN:
-            # P100 (sm60): tensor core YOK -> fp16 matmul T4'ün ~1/3'ü. Kaggle'da
-            # "GPU T4 x2" seçimi bu karttan NET hızlıdır (bkz. WORKFLOW.md GPU rehberi).
-            print(f"[GPU] {_props.name} (sm{_props.major}{_props.minor}): tensor core yok -> "
-                  f"T4'ten yavaş; Kaggle'da 2×T4 (DDP) tercih et.")
+            # tensor core yok (sm<7.0) -> fp16 matmul çok yavaş; daha yeni bir GPU tercih et.
+            print(f"[GPU] {_props.name} (sm{_props.major}{_props.minor}): tensor core yok -> yavaş.")
         # BATCH_SIZE yukarıda hesaplandı -> otomatik ayar sonrası tazele
         BATCH_SIZE = PER_GPU_BATCH if USE_DDP else PER_GPU_BATCH * max(1, N_GPU)
     except Exception:
@@ -596,7 +563,7 @@ def _tokenize_paths(tok, paths, fileobj):
 
 
 # --- PARALEL TOKENIZE (VERİ İŞLEME HIZI) -----------------------------------
-# Tek süreçte tokenize CPU-bound + GIL'li (saf-python BPE) -> Kaggle'da ~16dk (logda 945s).
+# Tek süreçte tokenize CPU-bound + GIL'li (saf-python BPE) -> yavaş (~1B token ~16dk).
 # Korpusu dosya-gruplarına bölüp ÇOK SÜREÇLİ tokenize edersek 4 vCPU'da ~4x hızlanır.
 # Eğitimde örnekler RASTGELE pencere -> token AKIŞ SIRASI önemsiz; cache kimliği dosya-kümesi
 # + boyut ile doğrulanır (içerik-sırası değil) -> paralel SONUÇ birebir geçerli. ÇÖKMEZ:
@@ -657,12 +624,14 @@ def _tokenize_paths_fast(tok, paths, out_fileobj):
 
 
 def _collect_token_metas():
-    """Aday meta dosyaları: yerel TOKENS_META + /kaggle/input altındaki hepsi.
-    Shard'lar FARKLI dataset'lerde olabileceği için meta ile bin artık AYNI klasörde
-    aranmaz; bin çözümü _resolve_shards yapar (ad + boyut eşleşmesi)."""
+    """Aday meta dosyaları: yerel TOKENS_META + girdi dizinlerindeki hepsi.
+    Shard'lar farklı kaynaklarda olabileceği için meta ile bin aynı klasörde aranmaz;
+    bin çözümünü _resolve_shards yapar (ad + boyut eşleşmesi)."""
     metas = [TOKENS_META]
-    if os.path.isdir("/kaggle/input"):
-        for r, _, fs in os.walk("/kaggle/input"):
+    for d in INPUT_DIRS:
+        if not os.path.isdir(d):
+            continue
+        for r, _, fs in os.walk(d):
             for stem in TOKEN_STEMS:
                 if stem + ".meta.json" in fs:
                     metas.append(os.path.join(r, stem + ".meta.json"))
@@ -670,9 +639,9 @@ def _collect_token_metas():
 
 
 def _bin_index():
-    """OUT + /kaggle/input altındaki tüm calisra_tokens*.bin dosyaları: ad -> [yol,...]."""
+    """OUT + girdi dizinlerindeki tüm calisra_tokens*.bin dosyaları: ad -> [yol,...]."""
     idx = {}
-    roots = [OUT] + (["/kaggle/input"] if os.path.isdir("/kaggle/input") else [])
+    roots = [OUT] + [d for d in INPUT_DIRS if os.path.isdir(d)]
     for root in roots:
         for r, _, fs in os.walk(root):
             for f in fs:
@@ -791,20 +760,20 @@ def open_token_data(shard_paths):
 def prepare_tokens(tok):
     """jsonl -> DİSKE (uint16, SHARD'lı). ARTIMLI: önceki cache'i bulur, SADECE YENİ
     dosyaları ekler (tüm korpusu baştan tokenize ETMEZ). Cache SHARD_CAP_BYTES'a
-    ulaşınca yeni calisra_tokens_NNN.bin parçası açılır (Kaggle 20GB dataset sınırı).
+    ulaşınca yeni calisra_tokens_NNN.bin parçası açılır (tek dataset boyut sınırı).
     Döner: ([shard_yolları], n_token_toplam)."""
     assert tok.size <= 65536, "VOCAB 65536'yı aşarsa uint16 yetmez (token dtype büyüt)."
     base = {"vocab": int(tok.size), "dialog_repeat": DIALOG_REPEAT}
     cur = _file_ids()
-    # KİMLİK = (basename, boyut) -> Kaggle yolları session'lar arası DEĞİŞSE BİLE eşleşir
-    # (tam yol kullanınca her session yeni yol -> cache asla tutmuyordu = baştan tokenize).
+    # KİMLİK = (basename, boyut) -> yollar oturumlar arası değişse bile eşleşir
+    # (tam yol kullanınca her oturum yeni yol -> cache asla tutmaz = baştan tokenize).
     def _nrm(e):
         return (os.path.basename(e[0]), int(e[1]))
     cur_norm = {_nrm(e) for e in cur}
     os.makedirs(OUT, exist_ok=True)
 
     # CLARIS_TRUST_CACHE=1: alt-küme şartını GEVŞET — cache'i tek doğruluk kaynağı say.
-    # Kullanım amacı: Kaggle depolama kotası. Normalde eski jsonl dataset'leri hep ekli
+    # Amacı: depolama kotası. Normalde eski jsonl dataset'leri hep ekli
     # kalmalı (alt-küme şartı); 50-100 cycle'da bu ~100GB+ jsonl birikir. Cache .bin
     # zaten TÜM eski veriyi taşıyor (uint16, jsonl'in ~1/3'ü) -> bu bayrakla eski jsonl
     # dataset'leri notebook'tan çıkarılabilir; veri cache'ten aynen eğitilmeye devam eder.
@@ -859,7 +828,7 @@ def prepare_tokens(tok):
                 f"[CLARIS_BIN_RO] {len(new_paths)} yeni jsonl var ama bin PAYLAŞIMLI (read-only). "
                 f"Claris paylaşılan bin'e yazamaz — Calisra tarafında build_tokens çalıştır.")
         # ARTIMLI: dondurulmuş shard'lar YERİNDE kalır (kopya yok); sadece SON shard'a
-        # eklenir. Son shard başka klasördeyse (read-only /kaggle/input) OUT'a kopyalanır;
+        # eklenir. Son shard başka (read-only) girdi klasöründeyse OUT'a kopyalanır;
         # zaten doluysa kopya da yok, direkt yeni shard açılır.
         print(f"[veri] ARTIMLI tokenize: {len(cset)} dosya CACHE'ten ({len(paths)} shard), "
               f"{len(new_paths)} YENİ ekleniyor...")
@@ -989,7 +958,7 @@ def main():
         print(f"🎯 Donanım: {device}{' (DDP)' if USE_DDP else ' (DataParallel)' if N_GPU>1 else ''}")
 
     # 1) BPE — VARSA yeniden eğitme (aynı sözlük şart, yoksa resume bozulur).
-    # /kaggle/working silinir; önceki bpe.json'u DATASET olarak eklersen burada bulunur.
+    # Çıktı dizini oturumlar arası silinebilir; önceki bpe.json'u girdi olarak eklersen bulunur.
     # DDP: tokenize aşamasındaki ile AYNI desen — SADECE rank0 eğitir/yazar (çifte-eğitim +
     # dosyaya eş zamanlı yazma yarışı önlenir), diğer rank'ler barrier'da bekler, rank0
     # bpe.json yolunu broadcast eder, hepsi AYNI dosyayı yükler.
@@ -997,10 +966,15 @@ def main():
     bpe_existing = None
     if IS_MAIN:
         bpe_existing = BPE_PATH if os.path.exists(BPE_PATH) else None
-        if bpe_existing is None and os.path.isdir("/kaggle/input"):
-            for _r, _, _fs in os.walk("/kaggle/input"):
-                if "bpe.json" in _fs:
-                    bpe_existing = os.path.join(_r, "bpe.json")
+        if bpe_existing is None:
+            for _d in INPUT_DIRS:
+                if not os.path.isdir(_d):
+                    continue
+                for _r, _, _fs in os.walk(_d):
+                    if "bpe.json" in _fs:
+                        bpe_existing = os.path.join(_r, "bpe.json")
+                        break
+                if bpe_existing:
                     break
         if bpe_existing:
             tok.load(bpe_existing)
@@ -1038,7 +1012,7 @@ def main():
 
     # 2) token akışı -> DİSKE (memmap), RAM'e değil.
     # DDP: SADECE rank0 tokenize eder (çifte-yazma/yarış önle); diğerleri barrier'da bekler,
-    # rank0 bin yolunu broadcast eder, hepsi aynı bin'i (paylaşılan /kaggle/working) memmap açar.
+    # rank0 bin yolunu broadcast eder, hepsi aynı bin'i (paylaşılan çıktı dizini) memmap açar.
     if IS_MAIN:
         print("[veri] tokenize / cache kontrol...")
     shard_paths = None
@@ -1086,14 +1060,14 @@ def main():
         print(f"[amp] autocast dtype = {'bf16 (GradScaler kapalı)' if USE_BF16 else 'fp16 (GradScaler açık)'}")
     # OPTIMIZER: bitsandbytes 8-bit AdamW VARSA kullan -> optimizer state VRAM ~-%75
     # (550M'de ~3GB boşalır -> PER_GPU_BATCH 4'e çıkıp ~1.5-2x hızlanabilirsin).
-    # OTOMATİK KURULUM: Kaggle'da kütüphane yoksa + GPU varsa kendisi pip install eder
+    # OTOMATİK KURULUM: kütüphane yoksa + GPU varsa kendisi pip install eder
     # (sen unutsan da çalışır). Kuramazsa standart AdamW'ye düşer (çökmez).
     # ÖNEMLİ: TUTARLI ol — hep 8-bit ya da hep fp32. Format değişirse optim-state resume
     # edilmez (model ağırlığı yine yüklenir, aşağıda ayrı try ile korunur).
     def _make_optimizer(params):
         if not USE_8BIT or not IS_CUDA:            # CPU/yerelde 8-bit yok -> standart (DDP "cuda:1" de IS_CUDA)
             # fused=True: AdamW adımını TEK CUDA çekirdeğinde toplar -> param-başına launch yok,
-            # büyük modelde optimizer adımı belirgin hızlanır (T4'te desteklenir).
+            # büyük modelde optimizer adımı belirgin hızlanır.
             return torch.optim.AdamW(params, lr=LR, weight_decay=WEIGHT_DECAY, betas=(0.9, 0.95),
                                      fused=IS_CUDA), False
         bnb = None
@@ -1137,7 +1111,7 @@ def main():
     prev_commits = 0         # kaç commit/session yapıldı (resume'da checkpoint'ten yüklenir)
 
     # RESUME: kayıtlı model varsa SIFIRDAN değil, ÜSTÜNE devam et.
-    # Kaggle'da /kaggle/working oturum başında boştur; önceki claris_model.pt'yi
+    # Çıktı dizini oturum başında boşsa önceki claris_model.pt'yi girdi olarak ekle
     # bir veri seti olarak ekle -> DATA_DIRS altında bulunur, devam edilir.
     resume_path = CKPT_PATH if os.path.exists(CKPT_PATH) else None
     if resume_path is None:
@@ -1210,7 +1184,7 @@ def main():
     #   DP   -> tek süreç batch'i böler (GPU0 darboğaz, fallback).
     #
     # ⚡ torch.compile: HAM 'model' derlenir -> RMSNorm/RoPE/SwiGLU/residual element-wise
-    # çekirdekleri FÜZYONLANIR, kernel-launch sayısı düşer (T4'te ~1.2-1.5x). Param PAYLAŞIMLI:
+    # çekirdekleri füzyonlanır, kernel-launch sayısı düşer (~1.2-1.5x). Param PAYLAŞIMLI:
     # 'model' HAM kalır -> state_dict anahtarları TEMİZ (_orig_mod/module YOK) -> RESUME birebir.
     # DDP, derlenmiş çekirdeği SARAR -> no_sync/all-reduce STANDART çalışır (grad-birikim doğru).
     # suppress_errors=True: derleme bir grafı çeviremezse SESSİZCE eager'a düşer -> ASLA çökmez,
@@ -1242,7 +1216,7 @@ def main():
             model_fw = DDP(model, device_ids=[DDP_LOCAL_RANK], output_device=DDP_LOCAL_RANK,
                            find_unused_parameters=False)
         if IS_MAIN:
-            print(f"[GPU] DDP {N_GPU}×T4 EŞİT | mikro-batch {BATCH_SIZE}/GPU × {N_GPU} GPU "
+            print(f"[GPU] DDP {N_GPU}×GPU EŞİT | mikro-batch {BATCH_SIZE}/GPU × {N_GPU} GPU "
                   f"× accum {GRAD_ACCUM} = EFEKTİF batch {eff_batch} | checkpoint {GRAD_CKPT} (N={GRAD_CKPT_N if GRAD_CKPT else 0}/{N_LAYER})")
     elif N_GPU > 1:
         model_fw = nn.DataParallel(model)    # DP + compile riskli kombinasyon -> HAM model sar
@@ -1307,7 +1281,7 @@ def main():
         scaler.update()
 
         # HAFİF İLERLEME (eval değil) -> körlük yok + tok/s ölçümü. SADECE rank0 basar.
-        # tok/s GLOBAL (tokens_per_step zaten ×N_GPU içeriyor). flush=True: Kaggle buffer beklemesin.
+        # tok/s GLOBAL (tokens_per_step zaten ×N_GPU içeriyor). flush=True: log buffer beklemesin.
         if IS_MAIN and (step % PROGRESS_EVERY == 0 or step <= start_step + 3):
             done = step - start_step
             tps = done * tokens_per_step / max(time.time() - t0, 1e-6)
@@ -1336,7 +1310,7 @@ def main():
                 import torch.distributed as dist
                 dist.barrier()                     # diğer rank'ler rank0 eval+kayıt'ı bekler
 
-        # SÜRE-TABANLI OTO-DUR: ~11.75h doldu. DDP'de TÜM rank'ler AYNI adımda durmalı (yoksa
+        # SÜRE-TABANLI OTO-DUR: MAX_HOURS doldu. DDP'de tüm rank'ler AYNI adımda durmalı (yoksa
         # all-reduce kilitlenir) -> rank0 karar verir, broadcast eder.
         stop = 0
         if IS_MAIN and (time.time() - session_t0) > MAX_HOURS * 3600:

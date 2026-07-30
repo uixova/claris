@@ -2,7 +2,7 @@
 """
 Claris YEREL eğitici — kendi cihazında (tek GPU / CPU) sıfırdan VEYA resume pretrain.
 
-train_claris.py Kaggle'a göre ayarlıdır (2× T4, /kaggle yolları, 11.75h oto-dur).
+train_claris.py uzak 2×GPU eğitimine göre ayarlıdır (DDP, süre-tabanlı oto-dur).
 Bu script onun YEREL, ESNEK (argparse), tek-GPU/CPU dostu sürümüdür. Model mimarisini
 ve veri/tokenize fonksiyonlarını train_claris'dan İÇE AKTARIR (mimari tek yerde
 kalır; burada yalnız eğitim döngüsü + yerel ayarlar var).
@@ -128,9 +128,9 @@ def main():
             if not mism:
                 model.load_state_dict(ck["model"])
                 if "optim" in ck:
-                    # optim-state AYRI try (train_claris ile aynı desen): Kaggle
-                    # 8-bit AdamW ckpt'i yerel fp32 AdamW'ye uymazsa TÜM resume çökerdi
-                    # -> model ağırlığı da giderdi. Şimdi sadece optim sıfırdan başlar.
+                    # optim-state AYRI try (train_claris ile aynı desen): 8-bit AdamW
+                    # ckpt'i yerel fp32 AdamW'ye uymazsa TÜM resume çökerdi -> model ağırlığı
+                    # da giderdi. Şimdi sadece optim sıfırdan başlar.
                     try:
                         opt.load_state_dict(ck["optim"])
                     except Exception as _oe:

@@ -1,6 +1,6 @@
 # Calisra — bağımlılıklar
 # Eğitim/çıkarım (zorunlu):
-torch>=2.1            # Transformer eğitim/çıkarım (CUDA'lı sürüm Kaggle'da hazır)
+torch>=2.1            # Transformer eğitim/çıkarım (CUDA'lı sürüm eğitim ortamında hazır)
 numpy>=1.24           # token memmap + batch
 
 # Veri çekme (fetch_and_clean.py) — opsiyonel ama önerilir:
