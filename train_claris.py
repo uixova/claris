@@ -2,7 +2,7 @@
 """
 Claris eğitici scripti — BitNet b1.58 (ternary {-1,0,+1} ağırlık), decoder-only,
 Llama/Qwen tarzı bir Transformer: RMSNorm(SubLN) + RoPE (dönel pozisyon) + Squared-ReLU
-(ReLU²) gated FFN. ~335M parametre, vocab 32000, sadece METİN (Türkçe).
+(ReLU²) gated FFN. ~513M parametre, vocab 32000, sadece METİN (Türkçe).
 
 Calisra'dan (fp16, 502M) tek farkı MİMARİ: her nn.Linear -> BitLinear (ternary ağırlık +
 int8 aktivasyon, STE ile eğitim). VERİ AYNI — Calisra'nın 32k BPE'si ve token bin'i
@@ -101,40 +101,23 @@ CKPT_NAMES = ("claris_model.pt",)                   # resume ederken aranacak do
 TOKENS_BIN = os.path.join(OUT, "calisra_tokens.bin")
 TOKENS_META = os.path.join(OUT, "calisra_tokens.meta.json")
 TOKEN_STEMS = ("calisra_tokens",)                   # token cache dosyasının adı (PAYLAŞILAN)
-# TOKEN CACHE SHARD'LARI: tek dataset boyut sınırı yüzünden bin tek dosyada büyüyemez.
-# Cache SHARD_CAP'e ulaşınca yeni parça açılır (calisra_tokens_001.bin, _002...). Eğitim
-# tüm shard'ları tek sanal akış gibi memmap'ler; örnekleme havuzun tamamında rastgele
-# (sırayla-shard-işleme yok -> order bias yok). Meta shard basename'lerini tutar -> yollar
-# değişse de bulunur.
+# TOKEN CACHE SHARD'LARI: bin tek dosyada büyüyemez (boyut sınırı) -> parçalara bölünür
+# (calisra_tokens_001.bin...). Eğitim hepsini tek akış gibi memmap'ler, örnekleme rastgele
+# (order bias yok). Meta basename tutar -> yollar değişse de bulunur.
 SHARD_CAP_BYTES = max(2, int(float(os.environ.get("CLARIS_SHARD_GB", "16")) * 1024**3)) & ~1
 
 
 def _shard_name(i):
     return "calisra_tokens.bin" if i == 0 else f"calisra_tokens_{i:03d}.bin"
 
-# MODEL MİMARİSİ (~513M param, BitNet b1.58, sadece METİN)
-# 12*L*d^2 + vocab*d: 12*24*1280^2 + 32000*1280 = 472M + 41M = ~513M. head_dim = 64.
-# NEDEN 513M (335M'den yükseltildi): 335M @ CKPT_N=0 8.7k tok/s ile beklenenin ÜSTÜNDE
-# gitti -> bu hız fazlasını "zekaya" çevirdik. 335M BitNet ~= 250M-fp16 etkin; 513M BitNet
-# ~= 370M-fp16 etkin (+120M etkin kapasite). Deploy farkı küçük (66MB->100MB, ikisi de
-# "hissedilmez"), zeka farkı hissedilir. Hız ~6k'ya düşer (Calisra seviyesi, kabul edildi).
-VOCAB_SIZE = 32000        # Calisra ile AYNI (paylaşılan bpe.json). ASLA DEĞİŞTİRME:
-                          # vocab kayarsa paylaşılan bin okunamaz + resume ölür.
-                          # 32000 < 65536 -> token cache uint16 kalır.
-CONTEXT_LEN = 2048        # Calisra ile aynı. RoPE olduğu için ileride fine-tune ile uzatılır.
-N_EMBD = 1280             # d_model. 335M'deki 1024'ten genişletildi (DERİNLİK sabit tutuldu ->
-                          # reçete birebir transfer). head_dim = 1280/20 = 64 (standart).
-N_HEAD = 20               # head_dim = 1280/20 = 64 (Calisra/335M ile aynı head_dim)
-N_LAYER = 24              # DERİN çizgi (335M de L24'tü). Derinlik BitNet'in en çok kaybettiği
-                          # ÇOK-ADIMLI MANTIĞI telafi eder; büyüme sadece GENİŞLİKTEN geldi.
+# MODEL MİMARİSİ (~513M param, BitNet b1.58, sadece metin). Mimari sabit -> resume aynı şekli
+# yükler (config uyuşmazsa ckpt yok sayılır, sıfırdan başlar). vocab/context Calisra ile AYNI.
+VOCAB_SIZE = 32000        # Calisra ile aynı (paylaşılan bpe.json). DEĞİŞTİRME -> bin+resume ölür.
+CONTEXT_LEN = 2048        # Calisra ile aynı. RoPE -> ileride uzatılabilir.
+N_EMBD = 1280             # d_model. head_dim = 1280/20 = 64.
+N_HEAD = 20
+N_LAYER = 24              # derin çizgi -> BitNet'in kaybettiği çok-adımlı mantığı telafi eder.
 DROPOUT = 0.1
-# Toplam ~513M param. Mimari SABİT, resume aynı şekli yükler (config uyuşmazsa ckpt sessizce
-# YOK SAYILIR ve SIFIRDAN başlar). DİKKAT: eski 335M claris_model.pt varsa (d1024) config
-# uyuşmaz -> otomatik YOK SAYILIR, 513M SIFIRDAN başlar. Bu BEKLENEN (335M terk edildi).
-# TOKEN BÜTÇESİ: 513M x ~20 (Chinchilla) = ~10B ama TAVAN DEĞİL -- SmolLM 135M'i 600B'yle
-# eğitti (~4400 tok/param). Havuz 33B; 50B overtrain = 100 tok/param (sağlıklı). Tekrar ~4x.
-# DÜRÜST NOT: BitNet küçük ölçekte ternary'den fp16'ya göre daha çok kaybeder (parite 3B+'da
-# güçlü) -> 335M BitNet ≈ ~250M-fp16 etkin kalite. Aynı-token Calisra kıyası bunu gösterecek.
 
 # EĞİTİM AYARLARI
 # Toplam batch = PER_GPU_BATCH × GPU sayısı (device belli olunca hesaplanır). Ayarlar env'den,
@@ -150,12 +133,9 @@ GRAD_CKPT_N = int(os.environ.get("CLARIS_CKPT_N", "12"))
 # HIZ BAYRAKLARI:
 #   CLARIS_COMPILE=1 -> torch.compile füzyon. CLARIS_PARALLEL_TOK=1 -> çok-süreçli tokenize.
 #   CLARIS_RAM_DATA=auto -> token .bin RAM'e. CLARIS_CKPT_N -> seçici recompute (yukarı bak).
-MAX_ITERS = 0             # 0 = OTOMATİK: adım sayısı VERİ MİKTARINA göre (PASSES geçiş)
-PASSES = 2                # veride kaç tam geçiş (epoch). Paylaşılan havuz 33B token / 335M param
-                          # = ~98 tok/param -> tek geçiş bile MAX_HOURS'u kat kat aşıyor; süreyi
-                          # pratikte CLARIS_MAX_HOURS kapatıyor, PASSES sadece emniyet tavanı.
-DIALOG_REPEAT = 1         # 1 = tekrar YOK (oversample kapalı). Doğal+çeşitli bulk
-                          # veriyle gerçek dil/mantık öğrenilir; tekrar = ezber/çöp.
+MAX_ITERS = 0             # 0 = OTOMATİK: adım sayısı veri miktarına göre (PASSES geçiş)
+PASSES = 2                # veride kaç geçiş. Süreyi pratikte MAX_HOURS kapatır; PASSES emniyet tavanı.
+DIALOG_REPEAT = 1         # 1 = oversample kapalı.
 EVAL_EVERY = 500
 PROGRESS_EVERY = 20       # her bu kadar adımda HAFİF ilerleme (loss+tok/s) bas -> körlük yok.
                           # eval (pahalı) hâlâ EVAL_EVERY'de; bu sadece nabız + throughput ölçümü.
@@ -174,12 +154,9 @@ VAL_FRAC = 0.02
 RESUME = True             # models/claris_model.pt VARSA sıfırdan değil ÜSTÜNE devam et
 SEED = 42
 
-# DDP mi DataParallel mı
-# DDP'de GPU'lar eşit+bağımsız çalışır (GPU0 darboğazı yok, ~2x hız). torchrun ile açılır:
-#   torchrun --nproc_per_node=2 train_claris.py   (WORLD_SIZE yoksa tek süreç = DataParallel)
-# Not: kod bir hücreye yapıştırıldıysa torchrun çalışmaz (diskte .py yok) -> önce dosyaya yaz.
-# Çok-GPU ortamında NCCL bazen sessiz takılır -> şu env'lerle başlat:
-#   NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 NCCL_SHM_DISABLE=1 torchrun --standalone --nproc_per_node=2 ...
+# DDP (bağımsız GPU, ~2x hız) mi DataParallel mı. torchrun ile:
+#   torchrun --nproc_per_node=2 train_claris.py   (WORLD_SIZE yoksa = DataParallel)
+# Çok-GPU'da NCCL takılırsa: NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 NCCL_SHM_DISABLE=1 ekle.
 DDP_RANK = int(os.environ.get("RANK", "-1"))
 DDP_LOCAL_RANK = int(os.environ.get("LOCAL_RANK", "0"))
 DDP_WORLD = int(os.environ.get("WORLD_SIZE", "1"))
@@ -196,13 +173,9 @@ else:
     BATCH_SIZE = PER_GPU_BATCH * max(1, N_GPU)   # DP: tek süreç tüm GPU'ları besler
 IS_CUDA = str(device).startswith("cuda")         # "cuda" veya "cuda:1" -> True
 
-# AMP DTYPE: bf16 (sm80+: Ampere/Ada/Hopper) sayısal olarak fp16'dan güvenli — geniş exponent
-# aralığı -> overflow yok -> GradScaler gerekmez. Karar compute capability >= 8.0 ile verilir,
-# is_bf16_supported() ile DEĞİL: yeni PyTorch eski GPU'da da True dönebiliyor (emülasyon), ama
-# sm<8.0'da bf16 = tensor-core yok + mem-efficient SDPA bf16 desteklemez -> attention matrisi
-# ham açılır = OOM. sm80+ şartı bunu kapatır. Ağırlık fp32 master kalır -> dtype değişse de
-# resume güvenli (sm<8.0'da fp16 eğit, sonra sm80+'da bf16'yla devam = sorunsuz).
-# Elle: CLARIS_BF16=0 (kapat) / 1 (sm80+ ise aç).
+# AMP DTYPE: sm80+ (Ampere+) bf16 (fp16'dan güvenli, GradScaler gerekmez), altında fp16.
+# Karar compute-capability >= 8.0 ile (is_bf16_supported() eski GPU'da yanlış True dönebiliyor).
+# Ağırlık fp32 master -> dtype değişse de resume güvenli. Elle: CLARIS_BF16=0/1.
 try:
     _cap_ok = (IS_CUDA and torch.cuda.is_available()
                and torch.cuda.get_device_properties(
@@ -235,11 +208,8 @@ if IS_CUDA and torch.cuda.is_available():
         pass
 
 
-# MODEL — Llama/Qwen tarzı blok, üç ana parçadan oluşuyor:
-#   RMSNorm : LayerNorm gibi ama ortalama almıyor, sadece bölüyor -> biraz daha hızlı, donanım dostu
-#   RoPE    : pozisyonu dönel şekilde veriyor, ayrı pozisyon parametresi yok -> bağlamı sonradan uzatabiliyoruz
-#   SwiGLU  : normal MLP yerine kapılı MLP -> aynı parametreyle daha iyi öğreniyor
-#   Bias yok (Llama tarzı).
+# MODEL — BitNet blok: SubLN (RMSNorm BitLinear içinde) + RoPE (dönel pozisyon) + ReLU² FFN.
+# nn.Linear yerine BitLinear (ternary ağırlık + int8 akt). Bias yok.
 RMS_EPS = 1e-6
 ROPE_BASE = 10000.0
 
