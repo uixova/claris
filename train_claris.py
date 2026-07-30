@@ -66,6 +66,11 @@ for _p in (ROOT, os.getcwd()):
 # Girdi dizinleri env'den (: ile ayrık); yerelde varsayılan data/. Uzak eğitim ortamı
 # bu env'i kendi veri mount yoluna set eder.
 INPUT_DIRS = [p for p in os.environ.get("CLARIS_INPUT_DIRS", "").split(":") if p.strip()]
+if not INPUT_DIRS:
+    # env yoksa: cwd'nin komşusu 'input' (uzak ortam okuma-only veriyi orada mount eder)
+    _sib = os.path.join(os.path.dirname(os.getcwd()), "input")
+    if os.path.isdir(_sib):
+        INPUT_DIRS = [_sib]
 
 # bpe.py girdi dizinlerinden birine eklenmişse otomatik bul
 for _d in INPUT_DIRS:

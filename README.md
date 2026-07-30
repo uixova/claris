@@ -1,4 +1,22 @@
-# Claris 🇹🇷 — 1.58-bit (BitNet) Türkçe mini model
+<div align="center">
+
+# Claris 🇹🇷
+
+### 1.58-bit ternary (BitNet) Türkçe dil modeli
+
+*A from-scratch, Turkish-only ~513M-parameter BitNet b1.58 model — ternary {-1, 0, +1} weights.*
+
+[![Parametre](https://img.shields.io/badge/parametre-~513M-blue)](#mimari)
+[![Tip](https://img.shields.io/badge/tip-BitNet_b1.58-6f42c1)](#ne-farklı-fp16--bitnet-sadece-3-şey)
+[![Deploy](https://img.shields.io/badge/deploy-~66MB_CPU-orange)](#mimari)
+[![Dil](https://img.shields.io/badge/dil-%25100_T%C3%BCrk%C3%A7e-e30a17)](#)
+[![Lisans](https://img.shields.io/badge/lisans-Apache--2.0-green)](LICENSE)
+
+**[📘 Teknik rehber](claris.md)** · **Kardeş proje: [Calisra](https://github.com/uixova/calisra)** (fp16 Llama)
+
+</div>
+
+---
 
 **Calisra'nın kardeş projesi.** Aynı temiz Türkçe veri + aynı 32k BPE sözlük, ama tamamen
 **BitNet b1.58** (ternary ağırlık {-1, 0, +1}) üzerine kurulu ~513M parametre. Amaç: CPU'da
@@ -84,7 +102,8 @@ Diğer env: `CLARIS_LAYERS/DMODEL/HEADS/BATCH/ACCUM/CKPT_N/LR_TOTAL` — hepsi C
 - [x] Veri symlink (Calisra bin+bpe paylaşımı)
 - [ ] Uzak 2×GPU gerçek pretraining (env-süre commit + resume)
 - [ ] ~5-10B token → akıcı Türkçe + Calisra fp16 ile kıyas
-- [ ] SFT (Calisra hattı, loss SUM reduction)
+- [x] SFT altyapısı + DPO iskeleti ([train_dpo.py](train_dpo.py), base→SFT→DPO)
+- [ ] SFT eğitimi (Calisra hattı) + DPO hizalama
 - [ ] **v1.0 GGUF export** (bitnet.cpp, CPU'da torch'suz ~66MB)
 
 ---
@@ -92,7 +111,7 @@ Diğer env: `CLARIS_LAYERS/DMODEL/HEADS/BATCH/ACCUM/CKPT_N/LR_TOTAL` — hepsi C
 ## Lisans
 
 **Apache-2.0** (bkz. [LICENSE](LICENSE)). Ağırlıklar bu repoda değil — kod GitHub'da,
-ağırlık HuggingFace'te (gerekçe: Calisra'nın [YAYIN.md](https://github.com/uixova/calisra/blob/main/YAYIN.md)).
+ağırlık HuggingFace'te. `.env`/API key'leri repoda yok (`.gitignore`).
 
 ## Kaynaklar
 - BitNet b1.58 2B4T teknik rapor — https://arxiv.org/abs/2504.12285
